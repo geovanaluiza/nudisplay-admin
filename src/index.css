@@ -1,0 +1,37 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ================================================================
+   NORTHWEST UNIVERSITY — Admin Dashboard
+   Mirrors the locked palette of the display apps (Times serif,
+   navy/midnight base, gold accents, glassmorphism cards).
+   ================================================================ */
+
+@layer base {
+  html, body, #root { height: 100%; }
+  body {
+    @apply bg-nu-midnight text-nu-wisp font-sans antialiased;
+    background-image:
+      radial-gradient(1200px 600px at 80% -10%, rgba(0, 104, 187, 0.18), transparent 60%),
+      radial-gradient(1000px 500px at -10% 100%, rgba(68, 186, 130, 0.08), transparent 60%);
+  }
+  h1, h2, h3, h4 {
+    @apply font-serif tracking-tight;
+  }
+}
+
+@layer components {
+  .nu-card {
+    @apply rounded-glass bg-white/[0.04] backdrop-blur-glass border border-white/10
+           shadow-glass;
+  }
+  .nu-eyebrow {
+    @apply text-[11px] font-bold tracking-[0.32em] uppercase text-nu-tour;
+  }
+  .nu-pill {
+    @apply inline-flex items-center gap-2 rounded-full px-3 py-1
+           text-[11px] font-bold tracking-[0.22em] uppercase
+           bg-nu-blue/10 border border-nu-blue/40 text-nu-sky;
+  }
+}
