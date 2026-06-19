@@ -1,9 +1,13 @@
 import type { Display } from '../types/display'
+import type { DisplayCommand } from '../types/command'
 import { StatusBadge } from './StatusBadge'
 import { Button } from './Button'
+import { ScreenshotPanel } from './ScreenshotPanel'
+import { DevControls } from './DevControls'
+import { CommandStatus } from './CommandStatus'
 import {
   IconExternal, IconRefresh, IconHome, IconBlock, IconAlert,
-  IconMapPin, IconDisplay, IconClock, IconImage,
+  IconMapPin, IconDisplay, IconClock, IconBolt,
 } from './icons'
 import { sendCommand } from '../services/commands'
 import { logEvent } from '../services/events'
@@ -12,6 +16,7 @@ import { useState } from 'react'
 
 type Props = {
   display: Display
+  commands: DisplayCommand[]
   refreshTick?: number
 }
 
@@ -25,7 +30,7 @@ function timeAgo(iso: string | null): string {
   return `${Math.floor(diff / 3_600_000)}h ago`
 }
 
-export function DisplayCard({ display }: Props) {
+export function DisplayCard({ display, commands }: Props) {
   const [busyCmd, setBusyCmd] = useState<string | null>(null)
   const supabaseReady = isSupabaseConfigured()
 
@@ -53,7 +58,7 @@ export function DisplayCard({ display }: Props) {
 
   return (
     <article className="nu-card p-6 flex flex-col gap-5">
-      {/* Header: name + status */}
+      {/* Header: name + status + open-in-new-tab */}
       <header className="flex items-start gap-4">
         <div className="w-10 h-10 rounded-glass bg-nu-blue/15 border border-nu-blue/30 flex items-center justify-center text-nu-sky shrink-0">
           <IconDisplay size={20} />
@@ -82,20 +87,26 @@ export function DisplayCard({ display }: Props) {
         </a>
       </header>
 
-      {/* 1) Screenshot preview area (priority) */}
-      <ScreenshotPreview display={display} />
+      {/* 1) Screenshot panel (Phase 3C: real image with loading/error states) */}
+      <ScreenshotPanel display={display} />
 
-      {/* 2) Display name (already in header) + status (already in header) */}
-
-      {/* 3) Current page */}
-      {display.current_page && (
-        <div className="text-[12px] text-nu-skylight flex items-center gap-2">
-          <span className="nu-eyebrow text-[10px]">Page</span>
-          <code className="font-mono text-nu-sky">{display.current_page}</code>
+      {/* 2) Current page / current URL (Phase 3B) */}
+      <div className="grid grid-cols-1 gap-1 text-[12px]">
+        <div className="flex items-center gap-2">
+          <span className="nu-eyebrow text-[10px] w-20 shrink-0">Page</span>
+          <code className="font-mono text-nu-sky truncate">
+            {display.current_page ?? '—'}
+          </code>
         </div>
-      )}
+        <div className="flex items-center gap-2 min-w-0">
+          <span className="nu-eyebrow text-[10px] w-20 shrink-0">URL</span>
+          <code className="font-mono text-nu-sky/80 truncate text-[11px]">
+            {display.current_url ?? display.public_url ?? '—'}
+          </code>
+        </div>
+      </div>
 
-      {/* 4) Location + 5) Response time + 6) Last seen + 7) Last touch */}
+      {/* 3) Health grid (Phase 3D) — heartbeat, last touch, response, software */}
       <dl className="grid grid-cols-2 gap-x-4 gap-y-1.5 text-[12px]">
         <Meta icon={<IconMapPin size={12} />} label="Location" value={display.location} />
         <Meta
@@ -105,25 +116,38 @@ export function DisplayCard({ display }: Props) {
         />
         <Meta
           icon={<IconClock size={12} />}
-          label="Last seen"
+          label="Last heartbeat"
           value={timeAgo(display.last_seen)}
-          accent={display.status === 'online' ? 'leaf' : 'amber'}
+          accent={display.status === 'online' ? 'leaf' : display.status === 'checking' ? 'sky' : 'amber'}
         />
         <Meta
           icon={<IconClock size={12} />}
           label="Last touch"
           value={timeAgo(display.last_touch)}
         />
+        <Meta
+          icon={<IconBolt size={12} />}
+          label="Software"
+          value={display.software_version ?? '—'}
+        />
+        <Meta
+          icon={<IconClock size={12} />}
+          label="Updated"
+          value={timeAgo(display.updated_at)}
+        />
       </dl>
 
-      {/* 8) Optional: Notes */}
+      {/* 4) Optional notes */}
       {display.notes && (
         <div className="text-[12px] text-nu-skylight/80 italic border-l-2 border-nu-tour/40 pl-3">
           {display.notes}
         </div>
       )}
 
-      {/* Commands row — placeholder until Phase 3 connects to displays */}
+      {/* 5) Command pipeline (Phase 3F) — pending/executed summary */}
+      <CommandStatus display={display} commands={commands} />
+
+      {/* 6) Commands row */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
         <Button
           variant="secondary"
@@ -166,6 +190,11 @@ export function DisplayCard({ display }: Props) {
           {busyCmd === 'emergency_message' ? '…' : 'Emergency'}
         </Button>
       </div>
+
+      {/* 7) Dev controls (Phase 3E) — visible on the admin dashboard
+         since this is an internal-only preview. In a real production
+         build remove forceEnable to gate by import.meta.env.PROD. */}
+      <DevControls display={display} forceEnable />
     </article>
   )
 }
@@ -178,55 +207,21 @@ function Meta({
   icon: React.ReactNode
   label: string
   value: string
-  accent?: 'leaf' | 'amber'
+  accent?: 'leaf' | 'amber' | 'sky'
 }) {
   const color = accent === 'leaf' ? 'text-nu-leaf'
     : accent === 'amber' ? 'text-nu-amber'
+    : accent === 'sky' ? 'text-nu-sky'
     : 'text-nu-wisp'
   return (
-    <div className="flex items-center gap-2">
+    <div className="flex items-center gap-2 min-w-0">
       <span className="text-nu-skylight/60 shrink-0">{icon}</span>
-      <span className="text-nu-skylight/70 text-[11px] uppercase tracking-wider font-bold">
+      <span className="text-nu-skylight/70 text-[10px] uppercase tracking-wider font-bold whitespace-nowrap">
         {label}
       </span>
-      <span className={['font-mono text-[12px] ml-auto', color].join(' ')}>
+      <span className={['font-mono text-[11px] ml-auto truncate', color].join(' ')} title={value}>
         {value}
       </span>
-    </div>
-  )
-}
-
-function ScreenshotPreview({ display }: { display: Display }) {
-  // Phase 3: when screenshot_url is set, render <img>. Until then,
-  // show a subtle placeholder with the display name.
-  if (display.screenshot_url) {
-    return (
-      <div className="relative aspect-[16/10] rounded-glass overflow-hidden border border-white/10 bg-nu-navy/40">
-        <img
-          src={display.screenshot_url}
-          alt={`Live preview of ${display.name}`}
-          className="absolute inset-0 w-full h-full object-cover"
-          loading="lazy"
-        />
-      </div>
-    )
-  }
-  return (
-    <div className="relative aspect-[16/10] rounded-glass bg-gradient-to-br from-nu-navy/60 to-nu-midnight/80 border border-white/10 flex items-center justify-center overflow-hidden">
-      <div
-        className="absolute inset-0 opacity-[0.06]"
-        style={{
-          backgroundImage:
-            'repeating-linear-gradient(45deg, rgba(255,255,255,0.6) 0 1px, transparent 1px 14px)',
-        }}
-      />
-      <div className="relative text-center">
-        <IconImage size={28} className="text-nu-skylight/30 mx-auto" />
-        <div className="nu-eyebrow mt-2 text-[10px]">Screenshot</div>
-        <div className="mt-1 text-[11px] text-nu-skylight/50">
-          Available in Phase 3
-        </div>
-      </div>
     </div>
   )
 }

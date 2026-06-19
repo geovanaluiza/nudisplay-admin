@@ -121,3 +121,28 @@ export function IconImage({ className = '', size = 14 }: IconProps) {
     </svg>
   )
 }
+
+export function IconPower({ className = '', size = 14 }: IconProps) {
+  return (
+    <svg {...base(size)} className={className}>
+      <path d="M18.36 6.64a9 9 0 1 1-12.73 0" />
+      <line x1="12" y1="2" x2="12" y2="12" />
+    </svg>
+  )
+}
+
+export function IconBolt({ className = '', size = 14 }: IconProps) {
+  return (
+    <svg {...base(size)} className={className}>
+      <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2" />
+    </svg>
+  )
+}
+
+export function IconCheck({ className = '', size = 14 }: IconProps) {
+  return (
+    <svg {...base(size)} className={className}>
+      <polyline points="20 6 9 17 4 12" />
+    </svg>
+  )
+}

@@ -172,3 +172,88 @@ create policy "screenshots_write"  on storage.objects for insert to anon with ch
   project) and one new SQL migration (003_storage.sql) on the
   **backend** side. The dashboard's existing Realtime subscriptions
   pick up the new data automatically.
+
+---
+
+## Phase 3 dashboard features (already shipped)
+
+The dashboard itself received Phase 3 enhancements so staff can
+**validate heartbeat behavior before the display clients are
+connected**. None of these changes alter the visual design system
+— they are all additive UI elements on the existing DisplayCard.
+
+### 3A — Heartbeat service & hook
+- `src/services/heartbeat.ts` — pure functions
+  - `sendHeartbeat(id, payload)` writes to Supabase
+  - `sendHeartbeatWithEvent(...)` same + logs `heartbeat_received`
+  - `deriveStatus(d)` re-derives status from `last_seen`
+  - `HEARTBEAT_INTERVAL_MS = 30_000`, `OFFLINE_AFTER_MS = 90_000`
+- `src/hooks/useDisplayHeartbeat.ts` — generic per-display hook
+  (display-client mode: `autoTick: true` fires every 30s).
+- `src/hooks/useDisplayHeartbeatSimulator.ts` — in-dashboard
+  simulator (used by Dev Controls).
+
+### 3B — Current page / current URL
+DisplayCard now shows two rows:
+- `Page  /swoop-shop` (mono, nu-sky)
+- `URL  https://nu-display.vercel.app/...` (mono, nu-sky/80)
+
+### 3C — Screenshot infrastructure
+- `src/components/ScreenshotPanel.tsx` — dedicated component with
+  three states:
+  - URL present + loaded → real `<img>`
+  - URL present + broken → "Screenshot unavailable" + retry
+  - URL absent → subtle "Available when display client uploads to
+    Supabase Storage" placeholder
+- Footer shows `updated 2m ago`, Open, and Retry controls.
+
+### 3D — Health indicators
+DisplayCard health grid (2×3) now includes:
+- Location · Response (ms)
+- Last Heartbeat (color-coded: leaf = online, sky = checking,
+  amber = offline)
+- Last Touch · Software (version) · Updated (relative time)
+
+`StatusBadge` extended with a `checking` state (sky-blue, pulsing).
+
+### 3E — Dev controls
+- `src/components/DevControls.tsx` — three buttons wrapped in a
+  dashed amber border with the **"Development Only"** eyebrow:
+  - **Simulate Online** — sets status=online, new last_seen
+  - **Simulate Offline** — sets status=offline
+  - **Simulate Heartbeat** — fires one full heartbeat + event
+- Currently `forceEnable={true}` on the dashboard so the
+  preview deployment shows them. Remove `forceEnable` for the
+  real production build to gate by `import.meta.env.PROD`.
+
+### 3F — Command pipeline
+- `src/components/CommandStatus.tsx` — per-card summary of the
+  display's last 12 commands: `N pending · M executed` and the
+  most recent command with a status pill (gold = pending,
+  leaf = executed).
+- The command list is fetched once in `DisplaysPage` via
+  `useDisplayCommands(60)` and passed down to every DisplayCard
+  to avoid duplicate Realtime channels.
+
+---
+
+## What the display clients need to do
+
+Each of the four projects (`barton-2floor-rightarrow`,
+`barton-2floor-leftarrow`, `barton-2floor-downstairs`,
+`nu-display`) needs to:
+
+1. `npm install @supabase/supabase-js`
+2. Set `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` in the
+   Vercel project environment variables (the same anon key the
+   dashboard uses).
+3. Import `useDisplayHeartbeat` from this admin repo (or copy the
+   pattern) and call it with `autoTick: true`.
+4. Subscribe to `display_commands` (see the snippet above) and
+   write `executed_at` after executing.
+5. (Optional) Periodically upload a screenshot to
+   Supabase Storage bucket `screenshots` and update
+   `screenshot_url` on the row.
+
+The dashboard needs zero changes once the displays phone home —
+everything flows through the existing Realtime subscriptions.

@@ -98,6 +98,7 @@ export default function DisplaysPage() {
               <DisplayCard
                 key={d.id}
                 display={d}
+                commands={commands}
                 refreshTick={refreshTick}
               />
             ))}
