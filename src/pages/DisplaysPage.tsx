@@ -1,78 +1,363 @@
-import { DISPLAYS } from '../data/displays'
+import { useMemo, useState } from 'react'
+import { useDisplayStatus } from '../hooks/useDisplayStatus'
+import { useDisplayCommands } from '../hooks/useDisplayCommands'
+import { useDisplayEvents } from '../hooks/useDisplayEvents'
+import { deleteDisplay } from '../services/displays'
+import { logEvent } from '../services/events'
 import { DisplayCard } from '../components/DisplayCard'
-import { useHealthContext } from '../context/HealthContext'
+import { DisplayFormModal } from '../components/DisplayFormModal'
+import { Button } from '../components/Button'
+import { IconPlus, IconRefresh, IconTrash, IconEdit } from '../components/icons'
+import { isSupabaseConfigured } from '../services/supabase'
+import type { Display } from '../types/display'
+
+type ModalState =
+  | { kind: 'closed' }
+  | { kind: 'add' }
+  | { kind: 'edit'; display: Display }
 
 export default function DisplaysPage() {
-  const { tally, total } = useHealthContext()
-  const allOnline = tally.offline === 0 && tally.checking === 0
+  const { displays, lastUpdated, ready } = useDisplayStatus()
+  const commands = useDisplayCommands(40)
+  const events = useDisplayEvents(60)
+  const [modal, setModal] = useState<ModalState>({ kind: 'closed' })
+  const [refreshTick, setRefreshTick] = useState(0)
+
+  const stats = useMemo(() => {
+    const online = displays.filter((d) => d.status === 'online').length
+    const offline = displays.filter((d) => d.status === 'offline').length
+    const checking = displays.filter((d) => d.status === 'checking').length
+    const onlineWithRt = displays.filter(
+      (d) => d.status === 'online' && typeof d.response_time === 'number',
+    )
+    const avgRt = onlineWithRt.length
+      ? Math.round(
+          onlineWithRt.reduce((s, d) => s + (d.response_time ?? 0), 0) / onlineWithRt.length,
+        )
+      : null
+    return { online, offline, checking, avgRt, total: displays.length }
+  }, [displays])
+
+  const supabaseReady = isSupabaseConfigured()
+
+  async function onDelete(d: Display) {
+    if (!supabaseReady) return
+    if (!window.confirm(`Remove display "${d.name}"? This cannot be undone.`)) return
+    try {
+      await deleteDisplay(d.id)
+      await logEvent('command_sent', {
+        displayId: d.id,
+        message: `Display removed: ${d.name}`,
+      })
+    } catch (err) {
+      window.alert(err instanceof Error ? err.message : 'Failed to delete display')
+    }
+  }
 
   return (
     <div className="flex flex-col gap-8">
-      {/* Page header */}
-      <div className="flex items-end justify-between flex-wrap gap-4">
+      {/* ---------- Operations Center header (Phase 1.5) ---------- */}
+      <header className="flex items-end justify-between flex-wrap gap-6">
         <div>
-          <div className="nu-eyebrow">Displays</div>
-          <h1 className="font-serif text-[40px] text-nu-wisp leading-none mt-2">
-            Campus Signage
+          <div className="nu-eyebrow">Northwest University</div>
+          <h1 className="font-serif text-[44px] text-nu-wisp leading-none mt-2">
+            Digital Signage Operations Center
           </h1>
           <p className="text-[14px] text-nu-skylight mt-3 max-w-xl">
-            Live status of every Northwest University lobby and campus display.
-            Polled every 30 seconds.
+            Monitor and manage campus display health and status.
           </p>
         </div>
-        <div className="flex items-center gap-6">
-          <Stat label="Online" value={tally.online} accent="leaf" />
-          <Stat label="Offline" value={tally.offline} accent={tally.offline ? 'amber' : 'skylight'} />
-          <Stat label="Total" value={total} accent="tour" />
+        <div className="flex flex-col items-end gap-2">
+          <div className="flex items-center gap-2">
+            {!supabaseReady && (
+              <span className="nu-pill border-nu-amber/40 bg-nu-amber/10 text-nu-amber">
+                <span className="w-1.5 h-1.5 rounded-full bg-nu-amber" />
+                Local mode
+              </span>
+            )}
+            <Button
+              variant="secondary"
+              size="sm"
+              icon={<IconRefresh />}
+              onClick={() => setRefreshTick((t) => t + 1)}
+            >
+              Refresh
+            </Button>
+            <Button
+              variant="primary"
+              size="sm"
+              icon={<IconPlus />}
+              onClick={() => setModal({ kind: 'add' })}
+              disabled={!supabaseReady}
+              title={!supabaseReady ? 'Supabase not configured — set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY in .env' : undefined}
+            >
+              Add Display
+            </Button>
+          </div>
+          <div className="text-[12px] text-nu-skylight/70">
+            Last updated: {timeAgo(lastUpdated)}
+          </div>
         </div>
-      </div>
+      </header>
 
-      {/* Status banner */}
-      <div
-        className={[
-          'rounded-glass border px-5 py-3 flex items-center gap-3 text-[13px]',
-          allOnline
-            ? 'bg-nu-leaf/10 border-nu-leaf/30 text-nu-leaf'
-            : 'bg-nu-tour/10 border-nu-tour/30 text-nu-tour',
-        ].join(' ')}
-      >
-        <span
-          className={[
-            'w-2 h-2 rounded-full',
-            allOnline ? 'bg-nu-leaf' : 'bg-nu-tour',
-          ].join(' ')}
+      {/* ---------- Global health banner ---------- */}
+      <HealthBanner stats={stats} />
+
+      {/* ---------- Stats row ---------- */}
+      <section className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        <StatCard label="Total Displays" value={stats.total} accent="tour" />
+        <StatCard label="Online" value={stats.online} accent="leaf" />
+        <StatCard
+          label="Offline"
+          value={stats.offline}
+          accent={stats.offline > 0 ? 'amber' : 'skylight'}
         />
-        {allOnline
-          ? 'All displays online — no action required.'
-          : `${tally.offline} of ${total} display${tally.offline === 1 ? '' : 's'} need attention.`}
-      </div>
+        <StatCard
+          label="Avg Response"
+          value={stats.avgRt === null ? '—' : `${stats.avgRt} ms`}
+          accent="skylight"
+          isText
+        />
+      </section>
 
-      {/* Display grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        {DISPLAYS.map((d) => (
-          <DisplayCard key={d.id} display={d} />
-        ))}
-      </div>
+      {/* ---------- Display monitoring grid (2 per row) ---------- */}
+      <section>
+        <SectionHeader title="Display Monitoring" />
+        {ready && displays.length === 0 ? (
+          <EmptyState
+            supabaseReady={supabaseReady}
+            onAdd={() => setModal({ kind: 'add' })}
+          />
+        ) : (
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            {displays.map((d) => (
+              <DisplayCard
+                key={d.id}
+                display={d}
+                refreshTick={refreshTick}
+                actions={
+                  <>
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      icon={<IconEdit />}
+                      onClick={() => setModal({ kind: 'edit', display: d })}
+                      disabled={!supabaseReady}
+                    >
+                      Edit
+                    </Button>
+                    <Button
+                      variant="danger"
+                      size="sm"
+                      icon={<IconTrash />}
+                      onClick={() => onDelete(d)}
+                      disabled={!supabaseReady}
+                    >
+                      Remove
+                    </Button>
+                  </>
+                }
+              />
+            ))}
+          </div>
+        )}
+      </section>
+
+      {/* ---------- Recent Events + Command History ---------- */}
+      <section className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <EventsPanel events={events} displays={displays} />
+        <CommandsPanel commands={commands} displays={displays} />
+      </section>
+
+      {/* ---------- Add / Edit modal ---------- */}
+      <DisplayFormModal
+        mode={modal}
+        onClose={() => setModal({ kind: 'closed' })}
+        onSaved={() => setModal({ kind: 'closed' })}
+      />
     </div>
   )
 }
 
-function Stat({
-  label, value, accent,
-}: { label: string; value: number; accent: 'leaf' | 'amber' | 'tour' | 'skylight' }) {
+/* ===================== sub-components ===================== */
+
+function HealthBanner({
+  stats,
+}: { stats: { online: number; offline: number; checking: number; total: number } }) {
+  const allOnline = stats.total > 0 && stats.offline === 0 && stats.checking === 0
+  return (
+    <div
+      className={[
+        'rounded-glass border px-5 py-4 flex items-center gap-3 text-[14px]',
+        allOnline
+          ? 'bg-nu-leaf/10 border-nu-leaf/35 text-nu-leaf'
+          : 'bg-nu-amber/10 border-nu-amber/35 text-nu-amber',
+      ].join(' ')}
+      role="status"
+    >
+      <span className="text-[18px] leading-none">
+        {allOnline ? '🟢' : '🔴'}
+      </span>
+      <span className="font-semibold">
+        {stats.total === 0
+          ? 'No displays registered'
+          : allOnline
+            ? 'All Displays Operational'
+            : `${stats.offline} Display${stats.offline === 1 ? '' : 's'} Require Attention`}
+      </span>
+      <span className="ml-auto text-[12px] opacity-70">
+        {stats.total} registered · {stats.checking} checking
+      </span>
+    </div>
+  )
+}
+
+function StatCard({
+  label, value, accent, isText = false,
+}: {
+  label: string
+  value: number | string
+  accent: 'leaf' | 'amber' | 'tour' | 'skylight'
+  isText?: boolean
+}) {
   const color =
     accent === 'leaf' ? 'text-nu-leaf' :
     accent === 'amber' ? 'text-nu-amber' :
     accent === 'tour' ? 'text-nu-tour' :
     'text-nu-skylight'
   return (
-    <div className="text-right">
+    <div className="nu-card p-5">
       <div className="text-[11px] font-bold tracking-[0.28em] uppercase text-nu-skylight/70">
         {label}
       </div>
-      <div className={['font-serif text-[40px] leading-none mt-1', color].join(' ')}>
+      <div className={[
+        'leading-none mt-2',
+        isText ? 'font-sans font-bold text-[26px]' : 'font-serif text-[36px]',
+        color,
+      ].join(' ')}>
         {value}
       </div>
     </div>
   )
+}
+
+function SectionHeader({ title }: { title: string }) {
+  return (
+    <div className="flex items-end justify-between mb-4">
+      <h2 className="font-serif text-[22px] text-nu-wisp leading-none">{title}</h2>
+    </div>
+  )
+}
+
+function EmptyState({
+  supabaseReady, onAdd,
+}: { supabaseReady: boolean; onAdd: () => void }) {
+  return (
+    <div className="nu-card p-10 text-center">
+      <div className="nu-eyebrow">No displays yet</div>
+      <h3 className="font-serif text-[24px] text-nu-wisp mt-3">
+        {supabaseReady
+          ? 'Register your first kiosk to start monitoring.'
+          : 'Connect Supabase to start monitoring displays.'}
+      </h3>
+      <p className="text-[13px] text-nu-skylight mt-3 max-w-md mx-auto">
+        {supabaseReady
+          ? 'Use the "Add Display" button to register a new kiosk. It will appear in the dashboard immediately and start receiving heartbeats.'
+          : 'Set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY in .env, then run the SQL migrations in supabase/migrations/ to enable cloud sync.'}
+      </p>
+      {supabaseReady && (
+        <div className="mt-6">
+          <Button variant="primary" icon={<IconPlus />} onClick={onAdd}>
+            Add Display
+          </Button>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function EventsPanel({
+  events, displays,
+}: {
+  events: ReturnType<typeof useDisplayEvents>
+  displays: Display[]
+}) {
+  const displayName = (id: string | null) =>
+    displays.find((d) => d.id === id)?.name ?? '—'
+  return (
+    <div className="nu-card p-5">
+      <SectionHeader title="Recent Events" />
+      {events.length === 0 ? (
+        <div className="text-[13px] text-nu-skylight/60 py-8 text-center">
+          No events yet. Configure Supabase to start logging display activity.
+        </div>
+      ) : (
+        <ul className="divide-y divide-white/5 max-h-[420px] overflow-y-auto">
+          {events.map((e) => (
+            <li key={e.id} className="py-2.5 flex items-start gap-3 text-[12px]">
+              <span className="text-nu-skylight/60 font-mono w-16 shrink-0 pt-0.5">
+                {timeAgo(e.created_at)}
+              </span>
+              <span className="nu-pill text-[10px] py-0.5">{e.event_type}</span>
+              <span className="text-nu-wisp grow">
+                <span className="text-nu-sky">{displayName(e.display_id)}</span>
+                {e.message && (
+                  <span className="text-nu-skylight ml-1">— {e.message}</span>
+                )}
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  )
+}
+
+function CommandsPanel({
+  commands, displays,
+}: {
+  commands: ReturnType<typeof useDisplayCommands>
+  displays: Display[]
+}) {
+  const displayName = (id: string) =>
+    displays.find((d) => d.id === id)?.name ?? id
+  return (
+    <div className="nu-card p-5">
+      <SectionHeader title="Command History" />
+      {commands.length === 0 ? (
+        <div className="text-[13px] text-nu-skylight/60 py-8 text-center">
+          No commands sent yet. Tap a button on a display card to send
+          Reload / Go Home / Blackout / Emergency.
+        </div>
+      ) : (
+        <ul className="divide-y divide-white/5 max-h-[420px] overflow-y-auto">
+          {commands.map((c) => (
+            <li key={c.id} className="py-2.5 flex items-start gap-3 text-[12px]">
+              <span className="text-nu-skylight/60 font-mono w-16 shrink-0 pt-0.5">
+                {timeAgo(c.created_at)}
+              </span>
+              <span className="nu-pill text-[10px] py-0.5 capitalize">{c.command.replace(/_/g, ' ')}</span>
+              <span className="text-nu-wisp grow">
+                <span className="text-nu-sky">{displayName(c.display_id)}</span>
+                {c.executed_at
+                  ? <span className="text-nu-leaf ml-1">— executed</span>
+                  : <span className="text-nu-tour ml-1">— pending</span>}
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  )
+}
+
+/* ===================== utils ===================== */
+
+function timeAgo(iso: string): string {
+  if (!iso) return '—'
+  const diff = Date.now() - new Date(iso).getTime()
+  if (diff < 5_000) return 'just now'
+  if (diff < 60_000) return `${Math.floor(diff / 1000)}s ago`
+  if (diff < 3_600_000) return `${Math.floor(diff / 60_000)}m ago`
+  return `${Math.floor(diff / 3_600_000)}h ago`
 }

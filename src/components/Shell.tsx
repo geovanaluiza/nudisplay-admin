@@ -3,7 +3,7 @@ import { NuMark } from './NuMark'
 
 const NAV = [
   { to: '/admin/displays', label: 'Displays' },
-  // Phase 2 placeholders so leadership sees the planned surface area
+  // Phase 2 placeholders
   { to: '/admin/commands', label: 'Commands', soon: true },
   { to: '/admin/emergency', label: 'Emergency', soon: true },
 ]
@@ -21,7 +21,7 @@ export default function Shell() {
                 Northwest University
               </div>
               <div className="text-[11px] font-bold tracking-[0.28em] uppercase text-nu-tour mt-1">
-                Display Admin
+                Operations Center
               </div>
             </div>
           </Link>
@@ -50,9 +50,9 @@ export default function Shell() {
           <div className="ml-auto flex items-center gap-3">
             <span className="nu-pill">
               <span className="w-1.5 h-1.5 rounded-full bg-nu-leaf animate-pulse" />
-              Phase 1
+              Phase 2
             </span>
-            <span className="text-[12px] text-nu-skylight">v0.1</span>
+            <span className="text-[12px] text-nu-skylight">v0.2</span>
           </div>
         </div>
       </header>
