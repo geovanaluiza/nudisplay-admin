@@ -2,25 +2,16 @@ import { useMemo, useState } from 'react'
 import { useDisplayStatus } from '../hooks/useDisplayStatus'
 import { useDisplayCommands } from '../hooks/useDisplayCommands'
 import { useDisplayEvents } from '../hooks/useDisplayEvents'
-import { deleteDisplay } from '../services/displays'
-import { logEvent } from '../services/events'
 import { DisplayCard } from '../components/DisplayCard'
-import { DisplayFormModal } from '../components/DisplayFormModal'
 import { Button } from '../components/Button'
-import { IconPlus, IconRefresh, IconTrash, IconEdit } from '../components/icons'
+import { IconRefresh } from '../components/icons'
 import { isSupabaseConfigured } from '../services/supabase'
 import type { Display } from '../types/display'
-
-type ModalState =
-  | { kind: 'closed' }
-  | { kind: 'add' }
-  | { kind: 'edit'; display: Display }
 
 export default function DisplaysPage() {
   const { displays, lastUpdated, ready } = useDisplayStatus()
   const commands = useDisplayCommands(40)
   const events = useDisplayEvents(60)
-  const [modal, setModal] = useState<ModalState>({ kind: 'closed' })
   const [refreshTick, setRefreshTick] = useState(0)
 
   const stats = useMemo(() => {
@@ -39,20 +30,6 @@ export default function DisplaysPage() {
   }, [displays])
 
   const supabaseReady = isSupabaseConfigured()
-
-  async function onDelete(d: Display) {
-    if (!supabaseReady) return
-    if (!window.confirm(`Remove display "${d.name}"? This cannot be undone.`)) return
-    try {
-      await deleteDisplay(d.id)
-      await logEvent('command_sent', {
-        displayId: d.id,
-        message: `Display removed: ${d.name}`,
-      })
-    } catch (err) {
-      window.alert(err instanceof Error ? err.message : 'Failed to delete display')
-    }
-  }
 
   return (
     <div className="flex flex-col gap-8">
@@ -82,16 +59,6 @@ export default function DisplaysPage() {
               onClick={() => setRefreshTick((t) => t + 1)}
             >
               Refresh
-            </Button>
-            <Button
-              variant="primary"
-              size="sm"
-              icon={<IconPlus />}
-              onClick={() => setModal({ kind: 'add' })}
-              disabled={!supabaseReady}
-              title={!supabaseReady ? 'Supabase not configured — set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY in .env' : undefined}
-            >
-              Add Display
             </Button>
           </div>
           <div className="text-[12px] text-nu-skylight/70">
@@ -124,10 +91,7 @@ export default function DisplaysPage() {
       <section>
         <SectionHeader title="Display Monitoring" />
         {ready && displays.length === 0 ? (
-          <EmptyState
-            supabaseReady={supabaseReady}
-            onAdd={() => setModal({ kind: 'add' })}
-          />
+          <EmptyState supabaseReady={supabaseReady} />
         ) : (
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
             {displays.map((d) => (
@@ -135,28 +99,6 @@ export default function DisplaysPage() {
                 key={d.id}
                 display={d}
                 refreshTick={refreshTick}
-                actions={
-                  <>
-                    <Button
-                      variant="secondary"
-                      size="sm"
-                      icon={<IconEdit />}
-                      onClick={() => setModal({ kind: 'edit', display: d })}
-                      disabled={!supabaseReady}
-                    >
-                      Edit
-                    </Button>
-                    <Button
-                      variant="danger"
-                      size="sm"
-                      icon={<IconTrash />}
-                      onClick={() => onDelete(d)}
-                      disabled={!supabaseReady}
-                    >
-                      Remove
-                    </Button>
-                  </>
-                }
               />
             ))}
           </div>
@@ -168,13 +110,6 @@ export default function DisplaysPage() {
         <EventsPanel events={events} displays={displays} />
         <CommandsPanel commands={commands} displays={displays} />
       </section>
-
-      {/* ---------- Add / Edit modal ---------- */}
-      <DisplayFormModal
-        mode={modal}
-        onClose={() => setModal({ kind: 'closed' })}
-        onSaved={() => setModal({ kind: 'closed' })}
-      />
     </div>
   )
 }
@@ -250,28 +185,21 @@ function SectionHeader({ title }: { title: string }) {
 }
 
 function EmptyState({
-  supabaseReady, onAdd,
-}: { supabaseReady: boolean; onAdd: () => void }) {
+  supabaseReady,
+}: { supabaseReady: boolean }) {
   return (
     <div className="nu-card p-10 text-center">
       <div className="nu-eyebrow">No displays yet</div>
       <h3 className="font-serif text-[24px] text-nu-wisp mt-3">
         {supabaseReady
-          ? 'Register your first kiosk to start monitoring.'
+          ? 'No displays registered in Supabase.'
           : 'Connect Supabase to start monitoring displays.'}
       </h3>
       <p className="text-[13px] text-nu-skylight mt-3 max-w-md mx-auto">
         {supabaseReady
-          ? 'Use the "Add Display" button to register a new kiosk. It will appear in the dashboard immediately and start receiving heartbeats.'
+          ? 'Add displays by inserting rows in the `displays` table. New rows appear in the dashboard immediately via Realtime.'
           : 'Set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY in .env, then run the SQL migrations in supabase/migrations/ to enable cloud sync.'}
       </p>
-      {supabaseReady && (
-        <div className="mt-6">
-          <Button variant="primary" icon={<IconPlus />} onClick={onAdd}>
-            Add Display
-          </Button>
-        </div>
-      )}
     </div>
   )
 }

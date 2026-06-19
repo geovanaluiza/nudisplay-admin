@@ -90,12 +90,26 @@ was `online`.
 
 ## Operations
 
-### Add a display
+### Add / edit / remove displays
 
-1. Click **Add Display** in the header.
-2. Fill in **name** (required), **location** (required), **public URL** (required),
-   optional **orientation** and **notes**.
-3. The new row appears in the dashboard immediately via Realtime.
+For now, displays are managed **directly in Supabase** — either via
+the Supabase dashboard's table editor, the SQL editor, or by running
+additional migrations. The four known displays are seeded by
+`supabase/migrations/002_seed.sql`. Adding more is as simple as:
+
+```sql
+insert into public.displays (id, name, location, orientation, public_url, notes)
+values ('kiosk-5', 'Pavilion Display', 'Pavilion Hall', 'Center', 'https://...', '...');
+```
+
+The new row appears in the dashboard within a second or two via
+Supabase Realtime — no code deploy needed. The architecture supports
+10, 20, or more displays without changes.
+
+> Full Add/Edit/Delete UI inside the dashboard is on the roadmap
+> (Phase 2.5) but intentionally deferred — the SQL editor is
+> currently the canonical management surface for the 10+ display
+> roster.
 
 ### Send a command
 
@@ -109,12 +123,6 @@ On any display card, click one of the four command buttons:
 The command is inserted into `display_commands` and a `command_sent`
 event is logged. Phase 3 display clients will subscribe to that table
 and execute the command, then mark `executed_at`.
-
-### Edit / remove a display
-
-Each card has an **Edit** and **Remove** action at the bottom (visible
-when Supabase is configured). Edit opens the same modal as Add,
-pre-filled with the row. Remove is confirmed via a native confirm().
 
 ## Deploy to Vercel
 

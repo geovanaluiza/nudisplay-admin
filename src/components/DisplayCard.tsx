@@ -13,8 +13,6 @@ import { useState } from 'react'
 type Props = {
   display: Display
   refreshTick?: number
-  /** Optional Edit/Remove buttons supplied by the page (admin actions). */
-  actions?: React.ReactNode
 }
 
 function timeAgo(iso: string | null): string {
@@ -27,7 +25,7 @@ function timeAgo(iso: string | null): string {
   return `${Math.floor(diff / 3_600_000)}h ago`
 }
 
-export function DisplayCard({ display, actions }: Props) {
+export function DisplayCard({ display }: Props) {
   const [busyCmd, setBusyCmd] = useState<string | null>(null)
   const supabaseReady = isSupabaseConfigured()
 
@@ -168,13 +166,6 @@ export function DisplayCard({ display, actions }: Props) {
           {busyCmd === 'emergency_message' ? '…' : 'Emergency'}
         </Button>
       </div>
-
-      {/* Admin actions (Edit/Remove) — supplied by the page */}
-      {actions && (
-        <div className="grid grid-cols-2 gap-2 -mt-2">
-          {actions}
-        </div>
-      )}
     </article>
   )
 }

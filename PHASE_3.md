@@ -24,6 +24,26 @@ After Phase 3, the dashboard's existing Phase 2 hooks
 (`useDisplayStatus`, `useDisplayCommands`, `useDisplayEvents`) will
 fill in real-time data without any dashboard code changes.
 
+## Display management
+
+Displays are managed **in Supabase directly** (SQL editor, table
+editor, or migrations). The dashboard's Phase 2.5 UI for Add / Edit /
+Delete is intentionally deferred — the Supabase surface is the
+canonical management plane for the 10+ display roster.
+
+Adding a new kiosk:
+
+```sql
+insert into public.displays
+  (id, name, location, orientation, public_url, notes)
+values
+  ('pavilion-1', 'Pavilion Display', 'Pavilion Hall', 'Center',
+   'https://pavilion.vercel.app', 'Optional context for staff');
+```
+
+The new row appears in the dashboard via Realtime within a second or two.
+No code deploy required.
+
 ---
 
 ## Per-display client (one of the four)
