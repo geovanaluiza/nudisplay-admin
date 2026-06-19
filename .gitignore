@@ -3,6 +3,11 @@ dist
 .DS_Store
 *.log
 .env
-.env.*
+.env.local
+.env.*.local
 .vite
 *.tsbuildinfo
+
+# Allow tracking the example template
+!.env.example
+
