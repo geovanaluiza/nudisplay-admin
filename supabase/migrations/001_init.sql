@@ -89,7 +89,18 @@ create index if not exists display_events_display_idx
 -- dashboard bundle; this policy allows the dashboard to read everything
 -- and write commands/events freely. Lock this down further when we move
 -- from anon to a per-staff authenticated role.
+--
+-- IMPORTANT: on Supabase, RLS policies are evaluated AFTER table-level
+-- GRANTs. Without explicit `grant select ... to anon` on each table,
+-- the anon role gets "permission denied for table X" (42501) even
+-- though a permissive policy exists. We grant both here, then enable
+-- RLS + create the policies.
 -- ----------------------------------------------------------------------------
+grant usage on schema public to anon;
+grant select, insert, update, delete on public.displays          to anon;
+grant select, insert, update, delete on public.display_commands  to anon;
+grant select, insert, update, delete on public.display_events    to anon;
+
 alter table public.displays          enable row level security;
 alter table public.display_commands  enable row level security;
 alter table public.display_events    enable row level security;
