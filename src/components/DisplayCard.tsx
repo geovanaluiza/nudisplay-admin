@@ -9,7 +9,7 @@ import { DevControls } from './DevControls'
 import { CommandStatus } from './CommandStatus'
 import {
   IconExternal, IconRefresh, IconHome, IconBlock, IconAlert,
-  IconMapPin, IconDisplay, IconClock, IconBolt,
+  IconMapPin, IconDisplay, IconClock, IconBolt, IconCheck, IconX,
 } from './icons'
 import { sendCommand } from '../services/commands'
 import { logEvent } from '../services/events'
@@ -22,7 +22,9 @@ type Props = {
   refreshTick?: number
 }
 
-type CommandName = 'reload' | 'go_home' | 'blackout' | 'emergency_message'
+type CommandName =
+  | 'reload' | 'go_home' | 'blackout' | 'emergency_message'
+  | 'clear_blackout' | 'clear_emergency'
 type CommandUiState = 'idle' | 'sending' | 'queued' | 'executed' | 'error'
 
 function timeAgo(iso: string | null): string {
@@ -44,8 +46,9 @@ function timeAgo(iso: string | null): string {
  * admins out in that window, we treat `undefined`, `'online'` and
  * `'checking'` as commandable. `'offline'` is the only blocking state.
  *
- * Buttons are also blocked while a Supabase insert is in flight for
- * THIS button (busyCmd), or when Supabase isn't configured at all.
+ * Important: Go Home is ALWAYS commandable when Supabase is configured,
+ * even if the display is offline. This is the universal recovery
+ * command — it must reach the kiosk the moment it reconnects.
  */
 function isCommandable(display: Display, supabaseReady: boolean): boolean {
   if (!supabaseReady) return false
@@ -60,10 +63,15 @@ export function DisplayCard({ display, commands }: Props) {
     go_home: 'idle',
     blackout: 'idle',
     emergency_message: 'idle',
+    clear_blackout: 'idle',
+    clear_emergency: 'idle',
   })
   const [cmdError, setCmdError] = useState<string | null>(null)
   const supabaseReady = isSupabaseConfigured()
   const commandable = isCommandable(display, supabaseReady)
+
+  const blackoutActive = Boolean(display.is_blackout)
+  const emergencyActive = Boolean(display.emergency_message)
 
   /**
    * Watch the commands prop and flip the UI state of any matching
@@ -85,7 +93,10 @@ export function DisplayCard({ display, commands }: Props) {
     setCmdState((prev) => {
       const next = { ...prev }
       let changed = false
-      for (const k of ['reload', 'go_home', 'blackout', 'emergency_message'] as CommandName[]) {
+      for (const k of [
+        'reload', 'go_home', 'blackout', 'emergency_message',
+        'clear_blackout', 'clear_emergency',
+      ] as CommandName[]) {
         const row = latestForCmd[k]
         if (!row) continue
         if (row.executed_at && prev[k] !== 'executed') {
@@ -145,7 +156,9 @@ export function DisplayCard({ display, commands }: Props) {
 
   // Build the props for each button (DRY)
   function btnProps(cmd: CommandName, label: string) {
-    const blocked = !commandable
+    // Go Home is ALWAYS clickable (recovery) — except during a
+    // Supabase insert in flight or when Supabase isn't configured.
+    const blocked = cmd === 'go_home' ? !supabaseReady : !commandable
     const busy = busyCmd === cmd
     const state = cmdState[cmd]
     const disabled = blocked || busy
@@ -276,10 +289,31 @@ export function DisplayCard({ display, commands }: Props) {
         </div>
       )}
 
+      {/* 4b) Overlay mode indicators — show current blackout / emergency state */}
+      {(blackoutActive || emergencyActive) && (
+        <div className="flex items-center gap-2 flex-wrap">
+          {blackoutActive && (
+            <span className="nu-pill text-[10px] py-1 px-3 border-nu-tour/60 bg-nu-tour/15 text-nu-tour border">
+              <IconBlock size={11} />
+              <span>Blackout active</span>
+            </span>
+          )}
+          {emergencyActive && (
+            <span className="nu-pill text-[10px] py-1 px-3 border-nu-amber/60 bg-nu-amber/15 text-nu-amber border">
+              <IconAlert size={11} />
+              <span>Emergency active</span>
+            </span>
+          )}
+          <span className="text-[10px] text-nu-skylight/70 ml-auto">
+            Click <strong className="text-nu-tour">Go Home</strong> to recover
+          </span>
+        </div>
+      )}
+
       {/* 5) Command pipeline (Phase 3F) — pending/executed summary */}
       <CommandStatus display={display} commands={commands} />
 
-      {/* 6) Commands row */}
+      {/* 6) Commands row — primary actions */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
         {(() => {
           const r = btnProps('reload', 'Reload')
@@ -306,23 +340,28 @@ export function DisplayCard({ display, commands }: Props) {
               icon={<IconHome />}
               onClick={() => onCommand('go_home', 'Go Home')}
               disabled={g.disabled}
-              title={g.title}
-              className={g.state === 'queued' || g.state === 'executed' ? 'ring-1 ring-nu-tour/50' : ''}
+              title="Universal recovery: clear blackout/emergency and return to home"
+              className={[
+                'ring-1 ring-nu-tour/40',
+                g.state === 'queued' || g.state === 'executed' ? 'ring-nu-tour/60' : '',
+              ].join(' ')}
             >
               {g.stateLabel}
             </Button>
           )
         })()}
         {(() => {
-          const b = btnProps('blackout', 'Blackout')
+          const b = btnProps('blackout', blackoutActive ? 'End Blackout' : 'Blackout')
           return (
             <Button
-              variant="danger"
+              variant={blackoutActive ? 'secondary' : 'danger'}
               size="sm"
-              icon={<IconBlock />}
-              onClick={() => onCommand('blackout', 'Blackout')}
+              icon={blackoutActive ? <IconCheck /> : <IconBlock />}
+              onClick={() => onCommand(blackoutActive ? 'clear_blackout' : 'blackout', blackoutActive ? 'End Blackout' : 'Blackout')}
               disabled={b.disabled}
-              title={b.title}
+              title={blackoutActive
+                ? 'End the blackout overlay (display client clears local state + key)'
+                : 'Activate the blackout overlay (display client shows fullscreen #000)'}
               className={b.state === 'queued' || b.state === 'executed' ? 'ring-1 ring-nu-tour/50' : ''}
             >
               {b.stateLabel}
@@ -330,18 +369,58 @@ export function DisplayCard({ display, commands }: Props) {
           )
         })()}
         {(() => {
-          const e = btnProps('emergency_message', 'Emergency')
+          const e = btnProps('emergency_message', emergencyActive ? 'End Emergency' : 'Emergency')
           return (
             <Button
-              variant="primary"
+              variant={emergencyActive ? 'secondary' : 'primary'}
               size="sm"
-              icon={<IconAlert />}
-              onClick={() => onCommand('emergency_message', 'Emergency')}
+              icon={emergencyActive ? <IconCheck /> : <IconAlert />}
+              onClick={() => onCommand(emergencyActive ? 'clear_emergency' : 'emergency_message', emergencyActive ? 'End Emergency' : 'Emergency')}
               disabled={e.disabled}
-              title={e.title}
+              title={emergencyActive
+                ? 'End the emergency overlay (display client clears local state + key)'
+                : 'Activate the emergency overlay (display client shows fullscreen red)'}
               className={e.state === 'queued' || e.state === 'executed' ? 'ring-1 ring-nu-tour/50' : ''}
             >
               {e.stateLabel}
+            </Button>
+          )
+        })()}
+      </div>
+
+      {/* 6b) Explicit recovery row — Clear Blackout / Clear Emergency
+            Use these to remove a single overlay WITHOUT navigating.
+            Go Home above does both AND navigates. */}
+      <div className="grid grid-cols-2 gap-2">
+        {(() => {
+          const c = btnProps('clear_blackout', 'Clear Blackout')
+          return (
+            <Button
+              variant="ghost"
+              size="sm"
+              icon={<IconX size={12} />}
+              onClick={() => onCommand('clear_blackout', 'Clear Blackout')}
+              disabled={c.disabled}
+              title="Remove blackout overlay only — does not navigate"
+              className="text-[11px]"
+            >
+              {c.state === 'queued' ? 'Queued' : c.state === 'executed' ? 'Done' : 'Clear Blackout'}
+            </Button>
+          )
+        })()}
+        {(() => {
+          const c = btnProps('clear_emergency', 'Clear Emergency')
+          return (
+            <Button
+              variant="ghost"
+              size="sm"
+              icon={<IconX size={12} />}
+              onClick={() => onCommand('clear_emergency', 'Clear Emergency')}
+              disabled={c.disabled}
+              title="Remove emergency overlay only — does not navigate"
+              className="text-[11px]"
+            >
+              {c.state === 'queued' ? 'Queued' : c.state === 'executed' ? 'Done' : 'Clear Emergency'}
             </Button>
           )
         })()}

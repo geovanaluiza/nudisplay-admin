@@ -1,4 +1,10 @@
-export type CommandType = 'reload' | 'go_home' | 'blackout' | 'emergency_message'
+export type CommandType =
+  | 'reload'
+  | 'go_home'
+  | 'blackout'
+  | 'emergency_message'
+  | 'clear_blackout'
+  | 'clear_emergency'
 
 export type DisplayCommand = {
   id: string
