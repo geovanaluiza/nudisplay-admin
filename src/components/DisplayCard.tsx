@@ -14,13 +14,16 @@ import {
 import { sendCommand } from '../services/commands'
 import { logEvent } from '../services/events'
 import { isSupabaseConfigured } from '../services/supabase'
-import { useState } from 'react'
+import { useState, useMemo } from 'react'
 
 type Props = {
   display: Display
   commands: DisplayCommand[]
   refreshTick?: number
 }
+
+type CommandName = 'reload' | 'go_home' | 'blackout' | 'emergency_message'
+type CommandUiState = 'idle' | 'sending' | 'queued' | 'executed' | 'error'
 
 function timeAgo(iso: string | null): string {
   if (!iso) return '—'
@@ -32,29 +35,134 @@ function timeAgo(iso: string | null): string {
   return `${Math.floor(diff / 3_600_000)}h ago`
 }
 
-export function DisplayCard({ display, commands }: Props) {
-  const [busyCmd, setBusyCmd] = useState<string | null>(null)
-  const supabaseReady = isSupabaseConfigured()
+/**
+ * Whether the command buttons should be enabled.
+ *
+ * Phase 4 made the buttons sensitive to `display.status === 'online'`,
+ * but the column can be `undefined` when the seed schema doesn't yet
+ * expose `security_status` (migration 004 not run). To avoid locking
+ * admins out in that window, we treat `undefined`, `'online'` and
+ * `'checking'` as commandable. `'offline'` is the only blocking state.
+ *
+ * Buttons are also blocked while a Supabase insert is in flight for
+ * THIS button (busyCmd), or when Supabase isn't configured at all.
+ */
+function isCommandable(display: Display, supabaseReady: boolean): boolean {
+  if (!supabaseReady) return false
+  if (display.status === 'offline') return false
+  return true
+}
 
-  async function onCommand(
-    cmd: 'reload' | 'go_home' | 'blackout' | 'emergency_message',
-    label: string,
-  ) {
+export function DisplayCard({ display, commands }: Props) {
+  const [busyCmd, setBusyCmd] = useState<CommandName | null>(null)
+  const [cmdState, setCmdState] = useState<Record<CommandName, CommandUiState>>({
+    reload: 'idle',
+    go_home: 'idle',
+    blackout: 'idle',
+    emergency_message: 'idle',
+  })
+  const [cmdError, setCmdError] = useState<string | null>(null)
+  const supabaseReady = isSupabaseConfigured()
+  const commandable = isCommandable(display, supabaseReady)
+
+  /**
+   * Watch the commands prop and flip the UI state of any matching
+   * command from 'queued' → 'executed' so the admin sees the
+   * display acknowledged it.
+   */
+  const latestForCmd = useMemo(() => {
+    const map: Partial<Record<CommandName, DisplayCommand>> = {}
+    for (const c of commands) {
+      if (c.display_id !== display.id) continue
+      const k = c.command as CommandName
+      if (!map[k]) map[k] = c
+    }
+    return map
+  }, [commands, display.id])
+
+  // Track execution transitions without infinite re-renders.
+  useMemo(() => {
+    setCmdState((prev) => {
+      const next = { ...prev }
+      let changed = false
+      for (const k of ['reload', 'go_home', 'blackout', 'emergency_message'] as CommandName[]) {
+        const row = latestForCmd[k]
+        if (!row) continue
+        if (row.executed_at && prev[k] !== 'executed') {
+          next[k] = 'executed'
+          changed = true
+        }
+      }
+      return changed ? next : prev
+    })
+  }, [latestForCmd])
+
+  async function onCommand(cmd: CommandName, label: string) {
     if (!supabaseReady) {
       window.alert('Supabase not configured. Set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY in .env to enable commands.')
       return
     }
+    if (busyCmd) return // already sending another command
+
+    const payload = { displayId: display.id, command: cmd }
+    if (import.meta.env.DEV) {
+      // eslint-disable-next-line no-console
+      console.log('[command] clicked', { ...payload, label })
+    }
+
     setBusyCmd(cmd)
+    setCmdState((s) => ({ ...s, [cmd]: 'sending' }))
+    setCmdError(null)
+
     try {
-      await sendCommand(display.id, cmd)
+      const inserted = await sendCommand(display.id, cmd)
+      if (import.meta.env.DEV) {
+        // eslint-disable-next-line no-console
+        console.log('[command] supabase insert ok', { id: inserted.id, command: cmd })
+      }
+      setCmdState((s) => ({ ...s, [cmd]: 'queued' }))
       await logEvent('command_sent', {
         displayId: display.id,
         message: `${label} command sent to ${display.name}`,
       })
     } catch (err) {
-      window.alert(err instanceof Error ? err.message : 'Failed to send command')
+      const msg = err instanceof Error ? err.message : 'Failed to send command'
+      if (import.meta.env.DEV) {
+        // eslint-disable-next-line no-console
+        console.error('[command] supabase insert failed', { command: cmd, error: msg })
+      }
+      setCmdState((s) => ({ ...s, [cmd]: 'error' }))
+      setCmdError(msg)
+      window.alert(msg)
     } finally {
       setBusyCmd(null)
+      // Reset to idle after 4s so the badge fades out
+      setTimeout(() => {
+        setCmdState((s) => (s[cmd] === 'queued' ? { ...s, [cmd]: 'idle' } : s))
+      }, 4_000)
+    }
+  }
+
+  // Build the props for each button (DRY)
+  function btnProps(cmd: CommandName, label: string) {
+    const blocked = !commandable
+    const busy = busyCmd === cmd
+    const state = cmdState[cmd]
+    const disabled = blocked || busy
+    const stateLabel =
+      busy ? '…' :
+      state === 'queued' ? 'Queued' :
+      state === 'executed' ? 'Done' :
+      state === 'error' ? '!' :
+      label
+    return {
+      disabled,
+      busy,
+      state,
+      stateLabel,
+      title: blocked
+        ? 'Display offline — commands are queued but not executed until the kiosk reports online'
+        : `Send a '${cmd}' command to ${display.name} (inserted into display_commands)`,
     }
   }
 
@@ -173,47 +281,78 @@ export function DisplayCard({ display, commands }: Props) {
 
       {/* 6) Commands row */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-        <Button
-          variant="secondary"
-          size="sm"
-          icon={<IconRefresh />}
-          onClick={() => onCommand('reload', 'Reload')}
-          disabled={!supabaseReady || display.status !== 'online' || busyCmd !== null}
-          title="Insert a 'reload' command into display_commands"
-        >
-          {busyCmd === 'reload' ? '…' : 'Reload'}
-        </Button>
-        <Button
-          variant="secondary"
-          size="sm"
-          icon={<IconHome />}
-          onClick={() => onCommand('go_home', 'Go Home')}
-          disabled={!supabaseReady || display.status !== 'online' || busyCmd !== null}
-          title="Insert a 'go_home' command into display_commands"
-        >
-          {busyCmd === 'go_home' ? '…' : 'Go Home'}
-        </Button>
-        <Button
-          variant="danger"
-          size="sm"
-          icon={<IconBlock />}
-          onClick={() => onCommand('blackout', 'Blackout')}
-          disabled={!supabaseReady || display.status !== 'online' || busyCmd !== null}
-          title="Insert a 'blackout' command into display_commands"
-        >
-          {busyCmd === 'blackout' ? '…' : 'Blackout'}
-        </Button>
-        <Button
-          variant="primary"
-          size="sm"
-          icon={<IconAlert />}
-          onClick={() => onCommand('emergency_message', 'Emergency')}
-          disabled={!supabaseReady || display.status !== 'online' || busyCmd !== null}
-          title="Insert an 'emergency_message' command into display_commands"
-        >
-          {busyCmd === 'emergency_message' ? '…' : 'Emergency'}
-        </Button>
+        {(() => {
+          const r = btnProps('reload', 'Reload')
+          return (
+            <Button
+              variant="secondary"
+              size="sm"
+              icon={<IconRefresh />}
+              onClick={() => onCommand('reload', 'Reload')}
+              disabled={r.disabled}
+              title={r.title}
+              className={r.state === 'queued' || r.state === 'executed' ? 'ring-1 ring-nu-tour/50' : ''}
+            >
+              {r.stateLabel}
+            </Button>
+          )
+        })()}
+        {(() => {
+          const g = btnProps('go_home', 'Go Home')
+          return (
+            <Button
+              variant="secondary"
+              size="sm"
+              icon={<IconHome />}
+              onClick={() => onCommand('go_home', 'Go Home')}
+              disabled={g.disabled}
+              title={g.title}
+              className={g.state === 'queued' || g.state === 'executed' ? 'ring-1 ring-nu-tour/50' : ''}
+            >
+              {g.stateLabel}
+            </Button>
+          )
+        })()}
+        {(() => {
+          const b = btnProps('blackout', 'Blackout')
+          return (
+            <Button
+              variant="danger"
+              size="sm"
+              icon={<IconBlock />}
+              onClick={() => onCommand('blackout', 'Blackout')}
+              disabled={b.disabled}
+              title={b.title}
+              className={b.state === 'queued' || b.state === 'executed' ? 'ring-1 ring-nu-tour/50' : ''}
+            >
+              {b.stateLabel}
+            </Button>
+          )
+        })()}
+        {(() => {
+          const e = btnProps('emergency_message', 'Emergency')
+          return (
+            <Button
+              variant="primary"
+              size="sm"
+              icon={<IconAlert />}
+              onClick={() => onCommand('emergency_message', 'Emergency')}
+              disabled={e.disabled}
+              title={e.title}
+              className={e.state === 'queued' || e.state === 'executed' ? 'ring-1 ring-nu-tour/50' : ''}
+            >
+              {e.stateLabel}
+            </Button>
+          )
+        })()}
       </div>
+
+      {/* Last error feedback (DEV-friendly surface for any send failure) */}
+      {cmdError && (
+        <div className="text-[11px] text-nu-amber border-l-2 border-nu-amber/50 pl-3">
+          Last command failed: {cmdError}
+        </div>
+      )}
 
       {/* 7) Dev controls (Phase 3E) — visible on the admin dashboard
          since this is an internal-only preview. In a real production
