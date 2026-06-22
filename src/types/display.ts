@@ -4,6 +4,7 @@
  * (the display client itself) starts writing heartbeats.
  */
 export type DisplayStatus = 'online' | 'offline' | 'checking'
+export type SecurityStatus = 'secure' | 'warning' | 'critical'
 
 export type Display = {
   id: string
@@ -22,6 +23,12 @@ export type Display = {
   software_version: string | null
   is_blackout: boolean
   emergency_message: string | null
+  // Phase 4.5 — security
+  approved_url: string
+  is_secure: boolean
+  security_status: SecurityStatus
+  security_message: string | null
+  // timestamps
   created_at: string
   updated_at: string
 }

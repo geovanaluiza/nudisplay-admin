@@ -3,6 +3,7 @@ import { useDisplayStatus } from '../hooks/useDisplayStatus'
 import { useDisplayCommands } from '../hooks/useDisplayCommands'
 import { useDisplayEvents } from '../hooks/useDisplayEvents'
 import { DisplayCard } from '../components/DisplayCard'
+import { SecurityEventsPanel } from '../components/SecurityEventsPanel'
 import { Button } from '../components/Button'
 import { IconRefresh } from '../components/icons'
 import { isSupabaseConfigured } from '../services/supabase'
@@ -70,6 +71,9 @@ export default function DisplaysPage() {
       {/* ---------- Global health banner ---------- */}
       <HealthBanner stats={stats} />
 
+      {/* ---------- Phase 4.5: security incident banner ---------- */}
+      <SecurityIncidentBanner displays={displays} />
+
       {/* ---------- Stats row ---------- */}
       <section className="grid grid-cols-2 md:grid-cols-4 gap-4">
         <StatCard label="Total Displays" value={stats.total} accent="tour" />
@@ -111,11 +115,66 @@ export default function DisplaysPage() {
         <EventsPanel events={events} displays={displays} />
         <CommandsPanel commands={commands} displays={displays} />
       </section>
+
+      {/* ---------- Phase 4.5: Recent Security Events ---------- */}
+      <section>
+        <SecurityEventsPanel displays={displays} />
+      </section>
     </div>
   )
 }
 
 /* ===================== sub-components ===================== */
+
+function SecurityIncidentBanner({ displays }: { displays: Display[] }) {
+  const critical = displays.filter((d) => d.security_status === 'critical')
+  const warning = displays.filter((d) => d.security_status === 'warning')
+  if (critical.length === 0 && warning.length === 0) return null
+  const isCritical = critical.length > 0
+  const headline = isCritical
+    ? `🚨 ${critical.length} Security Incident${critical.length === 1 ? '' : 's'} Require Immediate Attention`
+    : `🟡 ${warning.length} Display${warning.length === 1 ? '' : 's'} Need Review`
+  return (
+    <div
+      className={[
+        'rounded-glass border px-5 py-4 flex items-start gap-3 text-[14px]',
+        isCritical
+          ? 'bg-nu-amber/12 border-nu-amber/55 text-nu-amber'
+          : 'bg-nu-sky/12 border-nu-sky/40 text-nu-sky',
+      ].join(' ')}
+      role="status"
+    >
+      <span className="text-[18px] leading-none mt-0.5">{isCritical ? '🚨' : '🟡'}</span>
+      <div className="flex-1 min-w-0">
+        <div className="font-semibold">{headline}</div>
+        <div className="mt-2 flex flex-wrap gap-2 text-[12px]">
+          {critical.map((d) => (
+            <span
+              key={d.id}
+              className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-nu-amber/15 border border-nu-amber/40 text-nu-amber"
+            >
+              <strong>{d.name}</strong>
+              <span className="font-mono opacity-80 text-[11px]">
+                {d.security_message ?? 'critical'}
+              </span>
+            </span>
+          ))}
+          {warning.map((d) => (
+            <span
+              key={d.id}
+              className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-nu-sky/12 border border-nu-sky/40 text-nu-sky"
+            >
+              <strong>{d.name}</strong>
+              <span className="font-mono opacity-80 text-[11px]">
+                {d.security_message ?? 'warning'}
+              </span>
+            </span>
+          ))}
+        </div>
+      </div>
+    </div>
+  )
+}
 
 function HealthBanner({
   stats,

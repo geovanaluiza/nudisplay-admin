@@ -1,6 +1,8 @@
 import type { Display } from '../types/display'
 import type { DisplayCommand } from '../types/command'
 import { StatusBadge } from './StatusBadge'
+import { SecurityBadge } from './SecurityBadge'
+import { SecurityAlert } from './SecurityAlert'
 import { Button } from './Button'
 import { ScreenshotPanel } from './ScreenshotPanel'
 import { DevControls } from './DevControls'
@@ -58,6 +60,9 @@ export function DisplayCard({ display, commands }: Props) {
 
   return (
     <article className="nu-card p-6 flex flex-col gap-5">
+      {/* Phase 4.5: red alert banner if security_status === 'critical' */}
+      <SecurityAlert display={display} />
+
       {/* Header: name + status + open-in-new-tab */}
       <header className="flex items-start gap-4">
         <div className="w-10 h-10 rounded-glass bg-nu-blue/15 border border-nu-blue/30 flex items-center justify-center text-nu-sky shrink-0">
@@ -69,10 +74,19 @@ export function DisplayCard({ display, commands }: Props) {
               {display.name}
             </h3>
             <StatusBadge status={display.status} />
+            <SecurityBadge status={display.security_status} />
           </div>
           {display.orientation && (
             <div className="mt-1 text-[12px] text-nu-skylight">
               {display.orientation}
+            </div>
+          )}
+          {display.security_message && display.security_status !== 'secure' && (
+            <div className={[
+              'mt-1 text-[11px]',
+              display.security_status === 'critical' ? 'text-nu-amber' : 'text-nu-sky',
+            ].join(' ')}>
+              {display.security_message}
             </div>
           )}
         </div>
@@ -136,6 +150,16 @@ export function DisplayCard({ display, commands }: Props) {
           value={timeAgo(display.updated_at)}
         />
       </dl>
+
+      {/* Phase 4.5: approved URL bar (subtle, shows what's allowed) */}
+      {display.approved_url && (
+        <div className="text-[11px] text-nu-skylight/70 flex items-center gap-2 min-w-0">
+          <span className="nu-eyebrow text-[10px] w-20 shrink-0">Approved</span>
+          <code className="font-mono text-nu-sky/70 truncate text-[11px]" title={display.approved_url}>
+            {display.approved_url}
+          </code>
+        </div>
+      )}
 
       {/* 4) Optional notes */}
       {display.notes && (

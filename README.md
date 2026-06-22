@@ -36,10 +36,12 @@ and a "Local mode" pill appears in the header.
    ```
 3. Run the SQL migrations in order from `supabase/migrations/`:
    - `001_init.sql`     — schema (displays, display_commands, display_events), RLS, Realtime
-   - `002_seed.sql`     — the four known displays as initial rows
+   - `002_seed.sql`     — the four known displays as initial rows (includes `approved_url`)
    - `003_grants_policies.sql` — **required** if you see `42501 permission denied`;
      this adds explicit `GRANT SELECT … TO anon` on each table (RLS policies
      alone are not enough on Supabase)
+   - `004_security.sql` — Phase 4.5: adds `approved_url`, `is_secure`,
+     `security_status`, `security_message` columns to `displays` (idempotent)
 4. Reload the dashboard — the four displays will appear via Realtime
    within a second or two.
 

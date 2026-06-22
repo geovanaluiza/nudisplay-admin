@@ -4,6 +4,12 @@ export type EventType =
   | 'heartbeat_received'
   | 'command_sent'
   | 'command_executed'
+  // Phase 4.5 — security
+  | 'security_warning'
+  | 'security_critical'
+  | 'kiosk_escape_detected'
+  | 'focus_lost'
+  | 'auto_recovery_triggered'
 
 export type DisplayEvent = {
   id: string
