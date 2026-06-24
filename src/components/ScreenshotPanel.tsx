@@ -134,7 +134,7 @@ function LiveIframe({ url, name }: { url: string; name: string }) {
   return (
     <div
       ref={containerRef}
-      className="relative mx-auto overflow-hidden rounded-glass border border-white/10 bg-nu-navy/40"
+      className="relative mx-auto w-full overflow-hidden rounded-glass border border-white/10 bg-nu-navy/40"
       style={{
         aspectRatio: '9 / 16',
         maxWidth: `${PREVIEW_MAX_WIDTH}px`,
@@ -238,7 +238,7 @@ function BlockedOverlay({ url, name }: { url: string; name: string }) {
 function OfflinePortraitFrame() {
   return (
     <div
-      className="relative mx-auto overflow-hidden rounded-glass border border-white/10 bg-nu-navy/30"
+      className="relative mx-auto w-full overflow-hidden rounded-glass border border-white/10 bg-nu-navy/30"
       style={{
         aspectRatio: '9 / 16',
         maxWidth: `${PREVIEW_MAX_WIDTH}px`,
