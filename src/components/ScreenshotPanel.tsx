@@ -107,37 +107,48 @@ function isLocalOrigin(href: string): boolean {
 
 /**
  * Resolve the iframe src for a display, in priority order:
- *   1. current_url  (if not a local/dev origin)
- *   2. public_url   (if not a local/dev origin)
- *   3. approved_url + current_page  (reconstructed)
+ *   1. current_url  (live, what the kiosk is on now)
+ *      — if it's a local/dev origin, the heartbeat is from
+ *        a dev machine; reconstruct via approved_url instead
+ *        so the admin still shows the right page.
+ *   2. public_url   (configured canonical page)
+ *   3. approved_url + current_page  (reconstructed fallback)
  *   4. approved_url
  *   5. ''  → offline placeholder
  *
- * If current_url is localhost (dev machine), we still know what
- * page the kiosk is on (current_page) and we know its production
- * origin (approved_url). Reconstruct by appending current_page
- * to approved_url so the admin still shows the right page.
+ * Localhost guard: heartbeat payloads from a dev machine
+ * report http://localhost:3000/... — that origin can never
+ * embed in the production admin. resolveIframeUrl() detects
+ * localhost/127.0.0.1/0.0.0.0/::1/.local/file: origins and
+ * reconstructs the URL from approved_url + current_page so
+ * the admin still shows the page the dev machine is on,
+ * but served from the production origin.
  */
 export function resolveIframeUrl(display: Display): string {
   const { current_url, public_url, approved_url, current_page } = display
 
-  // 1. current_url (the live page) — skip if local/dev.
+  // 1. current_url — the live page the physical kiosk is on.
+  //    Reject local/dev origins (heartbeat from a dev machine):
+  //    they cannot embed in the production admin. In that case
+  //    jump straight to reconstruction below.
   if (current_url && !isLocalOrigin(current_url)) return current_url
 
-  // 2. public_url (configured) — skip if local/dev.
+  // 1b. current_url is local (dev machine). Reconstruct via
+  //     approved_url + current_page so the admin still shows
+  //     the right page, served from the production origin.
+  //     Skip public_url because it has no path component and
+  //     would land on '/' instead of the current page.
+  if (current_url && isLocalOrigin(current_url) && approved_url && current_page) {
+    return joinUrl(approved_url, current_page) ?? approved_url
+  }
+
+  // 2. public_url (configured canonical page).
   if (public_url && !isLocalOrigin(public_url)) return public_url
 
-  // 3. approved_url + current_page (reconstructed)
-  //    Used when only approved_url is reachable (local dev or
-  //    where public_url was never seeded).
+  // 3. approved_url + current_page (fallback reconstruction).
   if (approved_url && current_page) {
-    try {
-      const base = new URL(approved_url)
-      const path = current_page.startsWith('/') ? current_page : `/${current_page}`
-      return `${base.origin}${path}`
-    } catch {
-      /* fall through */
-    }
+    const joined = joinUrl(approved_url, current_page)
+    if (joined) return joined
   }
 
   // 4. approved_url alone
@@ -145,6 +156,18 @@ export function resolveIframeUrl(display: Display): string {
 
   // 5. nothing
   return ''
+}
+
+/** Append a path to an origin string, returning null on
+ *  parse error. The path may already start with '/'. */
+function joinUrl(origin: string, path: string): string | null {
+  try {
+    const base = new URL(origin)
+    const p = path.startsWith('/') ? path : `/${path}`
+    return `${base.origin}${p}`
+  } catch {
+    return null
+  }
 }
 
 function PreviewHeader() {
