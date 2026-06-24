@@ -57,21 +57,94 @@ const PREVIEW_MAX_WIDTH  = Math.round(PREVIEW_MAX_HEIGHT * 9 / 16) // 304px
 
 export function ScreenshotPanel({ display }: { display: Display }) {
   const isOnline = display.status === 'online'
-  // Fall back to approved_url if public_url was never set in
-  // the seed — both URLs point to the same Vercel deployment
-  // for the production seed rows, and the iframe only needs
-  // SOME origin to load.
-  const url = display.public_url || display.approved_url || ''
+  // Priority:
+  //   1. display.current_url (live) — what the physical kiosk is
+  //      actually showing right now. Supabase Realtime pushes a
+  //      new value every time the display navigates, so the
+  //      iframe follows the physical screen in real time.
+  //   2. display.public_url (configured) — the canonical page.
+  //   3. display.approved_url (kiosk) — last-resort origin.
+  //   4. '' → renders the offline placeholder.
+  //
+  // Localhost guard: heartbeat payloads from a dev machine
+  // report http://localhost:3000/... — that origin would never
+  // embed in the production admin. Reconstruct the URL from
+  // approved_url + current_page instead.
+  const url = resolveIframeUrl(display)
   return (
     <div className="flex flex-col gap-2">
       <PreviewHeader />
       {isOnline && url ? (
-        <LiveIframe url={url} name={display.name} />
+        <LiveIframe key={url} url={url} name={display.name} />
       ) : (
         <OfflinePortraitFrame />
       )}
     </div>
   )
+}
+
+/* -----------------------------------------------------------------
+ * URL resolution
+ * ----------------------------------------------------------------- */
+
+/** True for origins that can never embed in the production
+ *  dashboard (dev machine, internal IP, etc). */
+function isLocalOrigin(href: string): boolean {
+  try {
+    const u = new URL(href)
+    return (
+      u.hostname === 'localhost' ||
+      u.hostname === '127.0.0.1' ||
+      u.hostname === '0.0.0.0' ||
+      u.hostname === '::1' ||
+      u.hostname.endsWith('.local') ||
+      u.protocol === 'file:'
+    )
+  } catch {
+    return false
+  }
+}
+
+/**
+ * Resolve the iframe src for a display, in priority order:
+ *   1. current_url  (if not a local/dev origin)
+ *   2. public_url   (if not a local/dev origin)
+ *   3. approved_url + current_page  (reconstructed)
+ *   4. approved_url
+ *   5. ''  → offline placeholder
+ *
+ * If current_url is localhost (dev machine), we still know what
+ * page the kiosk is on (current_page) and we know its production
+ * origin (approved_url). Reconstruct by appending current_page
+ * to approved_url so the admin still shows the right page.
+ */
+export function resolveIframeUrl(display: Display): string {
+  const { current_url, public_url, approved_url, current_page } = display
+
+  // 1. current_url (the live page) — skip if local/dev.
+  if (current_url && !isLocalOrigin(current_url)) return current_url
+
+  // 2. public_url (configured) — skip if local/dev.
+  if (public_url && !isLocalOrigin(public_url)) return public_url
+
+  // 3. approved_url + current_page (reconstructed)
+  //    Used when only approved_url is reachable (local dev or
+  //    where public_url was never seeded).
+  if (approved_url && current_page) {
+    try {
+      const base = new URL(approved_url)
+      const path = current_page.startsWith('/') ? current_page : `/${current_page}`
+      return `${base.origin}${path}`
+    } catch {
+      /* fall through */
+    }
+  }
+
+  // 4. approved_url alone
+  if (approved_url) return approved_url
+
+  // 5. nothing
+  return ''
 }
 
 function PreviewHeader() {
