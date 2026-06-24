@@ -20,6 +20,7 @@ export type Display = {
   last_touch: string | null       // ISO timestamp
   response_time: number | null     // ms
   screenshot_url: string | null
+  screenshot_updated_at: string | null
   software_version: string | null
   is_blackout: boolean
   emergency_message: string | null

@@ -1,26 +1,55 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import type { Display } from '../types/display'
 import { IconImage, IconExternal } from './icons'
 
 /**
- * Renders the live preview area for a display.
+ * ScreenshotPanel — Phase 5.
  *
- * States:
- *  - URL present + loaded  → real <img>
- *  - URL present + loading → skeleton
- *  - URL present + broken  → "Screenshot unavailable" + retry hint
- *  - URL absent            → subtle placeholder ("Available in Phase 3")
+ * Live preview of what each physical display is currently showing.
  *
- * The screenshot timestamp is shown below the image so admins can
- * see how stale the preview is. We don't auto-refresh — the display
- * client controls when to update the screenshot.
+ * Render priority:
+ *   1. screenshot_url present → real <img> + "Last screenshot: Ns/Nm ago"
+ *   2. screenshot_url present AND screenshot_updated_at older than
+ *      5 minutes → "Screenshot stale" warning badge overlay
+ *   3. screenshot_url absent → keep the elegant placeholder panel
+ *
+ * Click-to-open: clicking the image (or the footer Open link) opens
+ * the full JPEG in a new tab so an operator can inspect details.
+ *
+ * Realtime updates: the parent DisplayCard re-renders the panel
+ * whenever the display row changes (Realtime delivers UPDATE
+ * events with the new screenshot_url + screenshot_updated_at).
+ * We also poll `screenshot_updated_at` every 30s so the "Ns/Nm
+ * ago" label ticks up without waiting for a new upload.
  */
+
+const STALE_THRESHOLD_MS = 5 * 60 * 1000 // 5 minutes
+
 export function ScreenshotPanel({ display }: { display: Display }) {
   const [status, setStatus] = useState<'idle' | 'loading' | 'loaded' | 'error'>('idle')
   const [reloadKey, setReloadKey] = useState(0)
+  const [now, setNow] = useState(() => Date.now())
   const hasUrl = Boolean(display.screenshot_url)
 
+  // Tick "time ago" every 30s while the panel is mounted so the
+  // operator sees a fresh value without manual refresh.
+  useEffect(() => {
+    const id = setInterval(() => setNow(Date.now()), 30_000)
+    return () => clearInterval(id)
+  }, [])
+
+  // When the screenshot URL changes (Realtime UPDATE), reset to
+  // loading so the new image shows a brief skeleton flash.
+  useEffect(() => {
+    setStatus('loading')
+    setReloadKey((n) => n + 1)
+  }, [display.screenshot_url])
+
   if (!hasUrl) return <Placeholder />
+
+  const isStale = display.screenshot_updated_at
+    ? now - new Date(display.screenshot_updated_at).getTime() > STALE_THRESHOLD_MS
+    : false
 
   if (status === 'error') {
     return (
@@ -34,14 +63,25 @@ export function ScreenshotPanel({ display }: { display: Display }) {
             </div>
           </div>
         </div>
-        <ScreenshotFooter display={display} onRetry={() => { setStatus('loading'); setReloadKey((n) => n + 1) }} />
+        <ScreenshotFooter
+          display={display}
+          now={now}
+          isStale={isStale}
+          onRetry={() => { setStatus('loading'); setReloadKey((n) => n + 1) }}
+        />
       </div>
     )
   }
 
   return (
     <div className="flex flex-col gap-2">
-      <div className="relative aspect-[16/10] rounded-glass overflow-hidden border border-white/10 bg-nu-navy/40">
+      <a
+        href={display.screenshot_url!}
+        target="_blank"
+        rel="noreferrer noopener"
+        title="Open full screenshot in a new tab"
+        className="relative aspect-[16/10] rounded-glass overflow-hidden border border-white/10 bg-nu-navy/40 group block cursor-zoom-in"
+      >
         {status !== 'loaded' && (
           <div className="absolute inset-0 animate-pulse bg-gradient-to-br from-nu-navy/60 via-nu-midnight/80 to-nu-navy/60" />
         )}
@@ -57,24 +97,46 @@ export function ScreenshotPanel({ display }: { display: Display }) {
           onLoad={() => setStatus('loaded')}
           onError={() => setStatus('error')}
         />
-      </div>
-      <ScreenshotFooter display={display} onRetry={() => { setStatus('loading'); setReloadKey((n) => n + 1) }} />
+        {/* Stale badge overlay */}
+        {isStale && status === 'loaded' && (
+          <div className="absolute top-2 right-2 flex items-center gap-1.5 rounded-full bg-nu-amber/90 text-nu-midnight px-2 py-0.5 text-[10px] font-semibold tracking-wide uppercase shadow-md">
+            <span className="inline-block w-1.5 h-1.5 rounded-full bg-nu-midnight animate-pulse" />
+            Screenshot stale
+          </div>
+        )}
+        {/* Hover zoom hint */}
+        <div className="absolute bottom-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity rounded-full bg-black/60 text-white px-2 py-0.5 text-[10px] inline-flex items-center gap-1">
+          <IconExternal size={10} /> Open
+        </div>
+      </a>
+      <ScreenshotFooter
+        display={display}
+        now={now}
+        isStale={isStale}
+        onRetry={() => { setStatus('loading'); setReloadKey((n) => n + 1) }}
+      />
     </div>
   )
 }
 
 function ScreenshotFooter({
-  display, onRetry,
+  display, now, isStale, onRetry,
 }: {
   display: Display
+  now: number
+  isStale: boolean
   onRetry: () => void
 }) {
-  const updated = display.updated_at
+  const ts = display.screenshot_updated_at ?? display.updated_at
   return (
     <div className="flex items-center justify-between text-[11px] text-nu-skylight/70 px-1">
       <div className="flex items-center gap-2">
-        <span className="nu-eyebrow text-[10px]">Preview</span>
-        {updated && <span>updated {timeAgo(updated)}</span>}
+        <span className="nu-eyebrow text-[10px]">Live preview</span>
+        {ts && (
+          <span className={isStale ? 'text-nu-amber' : 'text-nu-skylight/70'}>
+            Last screenshot: {timeAgo(ts, now)}
+          </span>
+        )}
       </div>
       <div className="flex items-center gap-3">
         <a
@@ -119,8 +181,8 @@ function Placeholder() {
   )
 }
 
-function timeAgo(iso: string): string {
-  const diff = Date.now() - new Date(iso).getTime()
+function timeAgo(iso: string, now: number = Date.now()): string {
+  const diff = now - new Date(iso).getTime()
   if (diff < 5_000) return 'just now'
   if (diff < 60_000) return `${Math.floor(diff / 1000)}s ago`
   if (diff < 3_600_000) return `${Math.floor(diff / 60_000)}m ago`
