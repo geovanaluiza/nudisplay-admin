@@ -7,6 +7,7 @@ import { Button } from './Button'
 import { ScreenshotPanel } from './ScreenshotPanel'
 import { DevControls } from './DevControls'
 import { CommandStatus } from './CommandStatus'
+import { PowerManagement } from './PowerManagement'
 import {
   IconExternal, IconRefresh, IconHome, IconBlock, IconAlert,
   IconMapPin, IconDisplay, IconClock, IconBolt, IconCheck, IconX,
@@ -25,6 +26,7 @@ type Props = {
 type CommandName =
   | 'reload' | 'go_home' | 'blackout' | 'emergency_message'
   | 'clear_blackout' | 'clear_emergency'
+  | 'power_off' | 'power_on'
 type CommandUiState = 'idle' | 'sending' | 'queued' | 'executed' | 'error'
 
 function timeAgo(iso: string | null): string {
@@ -65,6 +67,8 @@ export function DisplayCard({ display, commands }: Props) {
     emergency_message: 'idle',
     clear_blackout: 'idle',
     clear_emergency: 'idle',
+    power_off: 'idle',
+    power_on: 'idle',
   })
   const [cmdError, setCmdError] = useState<string | null>(null)
   const supabaseReady = isSupabaseConfigured()
@@ -95,7 +99,7 @@ export function DisplayCard({ display, commands }: Props) {
       let changed = false
       for (const k of [
         'reload', 'go_home', 'blackout', 'emergency_message',
-        'clear_blackout', 'clear_emergency',
+        'clear_blackout', 'clear_emergency', 'power_off', 'power_on',
       ] as CommandName[]) {
         const row = latestForCmd[k]
         if (!row) continue
@@ -432,6 +436,26 @@ export function DisplayCard({ display, commands }: Props) {
           Last command failed: {cmdError}
         </div>
       )}
+
+      {/* 6c) Power Management (Phase 5C) — hardware-agnostic on/off.
+            Sits below the command pipeline and reuses the same
+            display_commands table. The display client's
+            commandExecutor.executePowerOff / executePowerOn stubs
+            dispatch to whatever backend is plugged in. */}
+      <PowerManagement
+        display={display}
+        lastPowerCommand={
+          latestForCmd.power_off ? {
+            command: 'power_off',
+            created_at: latestForCmd.power_off.created_at,
+            executed_at: latestForCmd.power_off.executed_at,
+          } : latestForCmd.power_on ? {
+            command: 'power_on',
+            created_at: latestForCmd.power_on.created_at,
+            executed_at: latestForCmd.power_on.executed_at,
+          } : null
+        }
+      />
 
       {/* 7) Dev controls (Phase 3E) — visible on the admin dashboard
          since this is an internal-only preview. In a real production

@@ -24,6 +24,12 @@ export type Display = {
   software_version: string | null
   is_blackout: boolean
   emergency_message: string | null
+  // Phase 5C — Power Management
+  // 'on' = display is rendering content (default)
+  // 'off' = display is logically powered off
+  // null  = not yet reported by the display client
+  power_state: 'on' | 'off' | null
+  power_changed_at: string | null
   // Phase 4.5 — security
   approved_url: string
   is_secure: boolean
