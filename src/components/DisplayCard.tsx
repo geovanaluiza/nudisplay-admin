@@ -212,7 +212,7 @@ export function DisplayCard({ display, commands }: Props) {
           )}
         </div>
         <a
-          href={display.public_url}
+          href={display.public_url || display.approved_url || '#'}
           target="_blank"
           rel="noreferrer noopener"
           aria-label={`Open ${display.name} in a new tab`}

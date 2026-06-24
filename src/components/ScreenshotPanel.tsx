@@ -48,11 +48,16 @@ const PREVIEW_MAX_HEIGHT = 540 // px — keeps cards from getting
 
 export function ScreenshotPanel({ display }: { display: Display }) {
   const isOnline = display.status === 'online'
+  // Fall back to approved_url if public_url was never set in
+  // the seed — both URLs point to the same Vercel deployment
+  // for the production seed rows, and the iframe only needs
+  // SOME origin to load.
+  const url = display.public_url || display.approved_url || ''
   return (
     <div className="flex flex-col gap-2">
       <PreviewHeader />
-      {isOnline ? (
-        <LiveIframe url={display.public_url} name={display.name} />
+      {isOnline && url ? (
+        <LiveIframe url={url} name={display.name} />
       ) : (
         <OfflinePortraitFrame />
       )}
