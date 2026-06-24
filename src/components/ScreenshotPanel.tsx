@@ -101,18 +101,21 @@ function LiveIframe({ url, name }: { url: string; name: string }) {
     return () => obs.disconnect()
   }, [])
 
-  // If the iframe never fires onLoad within 6s AND the parent
-  // document's `document.hasFocus()` doesn't report our hidden
-  // visibility, we assume the embed was blocked. (X-Frame-Options
-  // / CSP frame-ancestors prevents the page from even
-  // rendering the kiosk content.)
+  // If the iframe never fires onLoad within 12s we assume the
+  // embed was blocked. (X-Frame-Options / CSP frame-ancestors
+  // prevents the page from even rendering the kiosk content,
+  // and onError does not fire in that case — onLoad simply
+  // never arrives.) 12s is generous: prerendered static
+  // assets + the 415 KB main bundle typically load in 1-3s
+  // on broadband; we leave headroom for cold Vercel cache,
+  // 4 simultaneous iframes, etc.
   useEffect(() => {
-    if (!inView || loaded) return
+    if (!inView || loaded || blocked) return
     const id = window.setTimeout(() => {
-      if (!loaded) setBlocked(true)
-    }, 6_000)
+      setBlocked((prev) => prev || !loaded)
+    }, 12_000)
     return () => window.clearTimeout(id)
-  }, [inView, loaded])
+  }, [inView, loaded, blocked])
 
   return (
     <div
