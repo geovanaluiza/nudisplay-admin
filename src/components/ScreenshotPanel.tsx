@@ -45,6 +45,15 @@ import { IconImage, IconExternal, IconBlock } from './icons'
 
 const PREVIEW_MAX_HEIGHT = 540 // px — keeps cards from getting
                                 //      comically tall on a 4-up grid
+const PREVIEW_MAX_WIDTH  = Math.round(PREVIEW_MAX_HEIGHT * 9 / 16) // 304px
+                                // — derived from the 9:16 aspect
+                                //   so the wrapper actually fits
+                                //   the portrait shape inside the
+                                //   wider grid cell. Without this
+                                //   the aspect-ratio collapses to
+                                //   "square-ish" because CSS does
+                                //   not auto-shrink width when
+                                //   max-height kicks in.
 
 export function ScreenshotPanel({ display }: { display: Display }) {
   const isOnline = display.status === 'online'
@@ -125,9 +134,10 @@ function LiveIframe({ url, name }: { url: string; name: string }) {
   return (
     <div
       ref={containerRef}
-      className="relative w-full overflow-hidden rounded-glass border border-white/10 bg-nu-navy/40"
+      className="relative mx-auto overflow-hidden rounded-glass border border-white/10 bg-nu-navy/40"
       style={{
         aspectRatio: '9 / 16',
+        maxWidth: `${PREVIEW_MAX_WIDTH}px`,
         maxHeight: `${PREVIEW_MAX_HEIGHT}px`,
       }}
     >
@@ -228,9 +238,10 @@ function BlockedOverlay({ url, name }: { url: string; name: string }) {
 function OfflinePortraitFrame() {
   return (
     <div
-      className="relative w-full overflow-hidden rounded-glass border border-white/10 bg-nu-navy/30"
+      className="relative mx-auto overflow-hidden rounded-glass border border-white/10 bg-nu-navy/30"
       style={{
         aspectRatio: '9 / 16',
+        maxWidth: `${PREVIEW_MAX_WIDTH}px`,
         maxHeight: `${PREVIEW_MAX_HEIGHT}px`,
       }}
     >
