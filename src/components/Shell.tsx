@@ -3,9 +3,6 @@ import { NuMark } from './NuMark'
 
 const NAV = [
   { to: '/admin/displays', label: 'Displays' },
-  // Phase 2 placeholders
-  { to: '/admin/commands', label: 'Commands', soon: true },
-  { to: '/admin/emergency', label: 'Emergency', soon: true },
 ]
 
 export default function Shell() {
@@ -37,12 +34,9 @@ export default function Shell() {
                     active
                       ? 'bg-nu-tour/15 text-nu-tour border border-nu-tour/40'
                       : 'text-nu-skylight hover:text-nu-wisp',
-                    n.soon ? 'opacity-60 cursor-not-allowed' : '',
                   ].join(' ')}
-                  onClick={(e) => n.soon && e.preventDefault()}
                 >
                   {n.label}
-                  {n.soon && <span className="ml-2 nu-eyebrow text-[9px]">soon</span>}
                 </Link>
               )
             })}
