@@ -101,14 +101,16 @@ export function ScreenshotPanel({ display }: { display: Display }) {
  *   3. '' → offline placeholder
  */
 export function resolveIframeUrl(display: Display): string {
-  const { approved_url, current_page } = display
+  const { approved_url, current_page, public_url } = display
 
-  if (approved_url && current_page) {
+  if (current_page && approved_url) {
     const joined = joinUrl(approved_url, current_page)
     if (joined) return joined
   }
 
   if (approved_url) return approved_url
+
+  if (public_url) return public_url
 
   return ''
 }
@@ -140,12 +142,15 @@ function LiveIframe({ url, name }: { url: string; name: string }) {
   const [loaded, setLoaded] = useState(false)
   const [blocked, setBlocked] = useState(false)
 
-  // If the iframe never fires onLoad within 12s we assume the
-  // embed was blocked (X-Frame-Options / CSP frame-ancestors).
+  useEffect(() => {
+    setLoaded(false)
+    setBlocked(false)
+  }, [url])
+
   useEffect(() => {
     if (loaded || blocked) return
     const id = window.setTimeout(() => {
-      setBlocked((prev) => prev || !loaded)
+      setBlocked(true)
     }, 12_000)
     return () => window.clearTimeout(id)
   }, [loaded, blocked])
@@ -163,7 +168,6 @@ function LiveIframe({ url, name }: { url: string; name: string }) {
         <iframe
           src={url}
           title={`${name} live preview`}
-          loading="lazy"
           referrerPolicy="no-referrer"
           sandbox="allow-scripts allow-same-origin allow-forms allow-popups"
           onLoad={() => setLoaded(true)}

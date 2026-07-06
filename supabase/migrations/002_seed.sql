@@ -43,8 +43,8 @@ insert into public.displays (id, name, location, orientation, notes, approved_ur
    'Butterfield Chapel',
    'Portrait 1080×1920',
    'Chapel digital signage. Shows the Reach Church experience on Mondays and the regular chapel rotation on other days.',
-   'https://nu-chapel.vercel.app',
-   'https://nu-chapel.vercel.app')
+   'https://chapel-ten.vercel.app',
+   'https://chapel-ten.vercel.app')
 on conflict (id) do update set
   name         = excluded.name,
   location     = excluded.location,

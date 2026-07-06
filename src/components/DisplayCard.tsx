@@ -15,7 +15,7 @@ import {
 import { sendCommand } from '../services/commands'
 import { logEvent } from '../services/events'
 import { isSupabaseConfigured } from '../services/supabase'
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect } from 'react'
 
 type Props = {
   display: Display
@@ -93,7 +93,7 @@ export function DisplayCard({ display, commands }: Props) {
   }, [commands, display.id])
 
   // Track execution transitions without infinite re-renders.
-  useMemo(() => {
+  useEffect(() => {
     setCmdState((prev) => {
       const next = { ...prev }
       let changed = false

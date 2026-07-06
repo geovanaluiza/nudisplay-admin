@@ -11,7 +11,7 @@
 -- the kiosk client writes when it detects a problem.
 -- ============================================================================
 
-alter table public.displayshi
+alter table public.displays
   add column if not exists approved_url     text        not null default '',
   add column if not exists is_secure        boolean     not null default true,
   add column if not exists security_status  text        not null default 'secure'
@@ -19,7 +19,7 @@ alter table public.displayshi
   add column if not exists security_message text;
 
 -- -----------------------------------------------------------------
--- Backfill approved_url for the four seed displays. Idempotent.
+-- Backfill approved_url for the seed displays. Idempotent.
 -- (If you added new displays with their own approved_url, those
 --  values stay intact — the UPDATE only fires where it's still empty.)
 -- -----------------------------------------------------------------
