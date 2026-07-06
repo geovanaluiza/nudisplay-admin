@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useState } from 'react'
 import type { Display } from '../types/display'
 import { IconImage, IconExternal, IconBlock } from './icons'
 
@@ -87,79 +87,33 @@ export function ScreenshotPanel({ display }: { display: Display }) {
  * URL resolution
  * ----------------------------------------------------------------- */
 
-/** True for origins that can never embed in the production
- *  dashboard (dev machine, internal IP, etc). */
-function isLocalOrigin(href: string): boolean {
-  try {
-    const u = new URL(href)
-    return (
-      u.hostname === 'localhost' ||
-      u.hostname === '127.0.0.1' ||
-      u.hostname === '0.0.0.0' ||
-      u.hostname === '::1' ||
-      u.hostname.endsWith('.local') ||
-      u.protocol === 'file:'
-    )
-  } catch {
-    return false
-  }
-}
-
 /**
- * Resolve the iframe src for a display, in priority order:
- *   1. current_url  (live, what the kiosk is on now)
- *      — if it's a local/dev origin, the heartbeat is from
- *        a dev machine; reconstruct via approved_url instead
- *        so the admin still shows the right page.
- *   2. public_url   (configured canonical page)
- *   3. approved_url + current_page  (reconstructed fallback)
- *   4. approved_url
- *   5. ''  → offline placeholder
+ * Resolve the iframe src for a display.
  *
- * Localhost guard: heartbeat payloads from a dev machine
- * report http://localhost:3000/... — that origin can never
- * embed in the production admin. resolveIframeUrl() detects
- * localhost/127.0.0.1/0.0.0.0/::1/.local/file: origins and
- * reconstructs the URL from approved_url + current_page so
- * the admin still shows the page the dev machine is on,
- * but served from the production origin.
+ * Admin preview rule: always derive the URL from the configured
+ * approved_url so the dashboard preview matches the approved kiosk
+ * origin. We intentionally ignore current_url (which may be a dev
+ * machine localhost or transient navigation state) and public_url.
+ *
+ * Priority:
+ *   1. approved_url + current_page (what the kiosk should be showing)
+ *   2. approved_url alone
+ *   3. '' → offline placeholder
  */
 export function resolveIframeUrl(display: Display): string {
-  const { current_url, public_url, approved_url, current_page } = display
+  const { approved_url, current_page } = display
 
-  // 1. current_url — the live page the physical kiosk is on.
-  //    Reject local/dev origins (heartbeat from a dev machine):
-  //    they cannot embed in the production admin. In that case
-  //    jump straight to reconstruction below.
-  if (current_url && !isLocalOrigin(current_url)) return current_url
-
-  // 1b. current_url is local (dev machine). Reconstruct via
-  //     approved_url + current_page so the admin still shows
-  //     the right page, served from the production origin.
-  //     Skip public_url because it has no path component and
-  //     would land on '/' instead of the current page.
-  if (current_url && isLocalOrigin(current_url) && approved_url && current_page) {
-    return joinUrl(approved_url, current_page) ?? approved_url
-  }
-
-  // 2. public_url (configured canonical page).
-  if (public_url && !isLocalOrigin(public_url)) return public_url
-
-  // 3. approved_url + current_page (fallback reconstruction).
   if (approved_url && current_page) {
     const joined = joinUrl(approved_url, current_page)
     if (joined) return joined
   }
 
-  // 4. approved_url alone
   if (approved_url) return approved_url
 
-  // 5. nothing
   return ''
 }
 
-/** Append a path to an origin string, returning null on
- *  parse error. The path may already start with '/'. */
+/** Append a path to an origin string, returning null on parse error. */
 function joinUrl(origin: string, path: string): string | null {
   try {
     const base = new URL(origin)
@@ -179,57 +133,25 @@ function PreviewHeader() {
 }
 
 /* -----------------------------------------------------------------
- * Live iframe (lazy-mounted via IntersectionObserver)
+ * Live iframe (always mounted for online displays)
  * ----------------------------------------------------------------- */
 
 function LiveIframe({ url, name }: { url: string; name: string }) {
-  const containerRef = useRef<HTMLDivElement | null>(null)
-  const [inView, setInView] = useState(false)
   const [loaded, setLoaded] = useState(false)
   const [blocked, setBlocked] = useState(false)
 
-  // Defer iframe creation until the card scrolls into view.
-  useEffect(() => {
-    if (!containerRef.current) return
-    if (typeof IntersectionObserver === 'undefined') {
-      setInView(true)
-      return
-    }
-    const obs = new IntersectionObserver(
-      (entries) => {
-        for (const entry of entries) {
-          if (entry.isIntersecting) {
-            setInView(true)
-            obs.disconnect()
-            break
-          }
-        }
-      },
-      { rootMargin: '120px 0px', threshold: 0.05 },
-    )
-    obs.observe(containerRef.current)
-    return () => obs.disconnect()
-  }, [])
-
   // If the iframe never fires onLoad within 12s we assume the
-  // embed was blocked. (X-Frame-Options / CSP frame-ancestors
-  // prevents the page from even rendering the kiosk content,
-  // and onError does not fire in that case — onLoad simply
-  // never arrives.) 12s is generous: prerendered static
-  // assets + the 415 KB main bundle typically load in 1-3s
-  // on broadband; we leave headroom for cold Vercel cache,
-  // 4 simultaneous iframes, etc.
+  // embed was blocked (X-Frame-Options / CSP frame-ancestors).
   useEffect(() => {
-    if (!inView || loaded || blocked) return
+    if (loaded || blocked) return
     const id = window.setTimeout(() => {
       setBlocked((prev) => prev || !loaded)
     }, 12_000)
     return () => window.clearTimeout(id)
-  }, [inView, loaded, blocked])
+  }, [loaded, blocked])
 
   return (
     <div
-      ref={containerRef}
       className="relative mx-auto w-full overflow-hidden rounded-glass border border-white/10 bg-nu-navy/40"
       style={{
         aspectRatio: '9 / 16',
@@ -237,7 +159,7 @@ function LiveIframe({ url, name }: { url: string; name: string }) {
         maxHeight: `${PREVIEW_MAX_HEIGHT}px`,
       }}
     >
-      {inView && !blocked && (
+      {!blocked && (
         <iframe
           src={url}
           title={`${name} live preview`}
@@ -251,24 +173,12 @@ function LiveIframe({ url, name }: { url: string; name: string }) {
       )}
 
       {/* Loading skeleton (visible until iframe fires onLoad) */}
-      {inView && !loaded && !blocked && (
+      {!loaded && !blocked && (
         <div className="absolute inset-0 animate-pulse bg-gradient-to-br from-nu-navy/60 via-nu-midnight/80 to-nu-navy/60 flex items-center justify-center">
           <div className="text-center">
             <IconImage size={28} className="text-nu-skylight/30 mx-auto" />
             <div className="nu-eyebrow mt-2 text-[10px] text-nu-skylight/50">
               Connecting…
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Pre-mount placeholder (card not yet in viewport) */}
-      {!inView && (
-        <div className="absolute inset-0 flex items-center justify-center bg-nu-navy/30">
-          <div className="text-center">
-            <IconImage size={26} className="text-nu-skylight/25 mx-auto" />
-            <div className="nu-eyebrow mt-2 text-[10px] text-nu-skylight/40">
-              Scroll to load
             </div>
           </div>
         </div>

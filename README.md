@@ -42,7 +42,7 @@ and a "Local mode" pill appears in the header.
      alone are not enough on Supabase)
    - `004_security.sql` — Phase 4.5: adds `approved_url`, `is_secure`,
      `security_status`, `security_message` columns to `displays` (idempotent)
-4. Reload the dashboard — the four displays will appear via Realtime
+4. Reload the dashboard — the five displays will appear via Realtime
    within a second or two.
 
 ## Architecture

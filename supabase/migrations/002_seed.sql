@@ -1,5 +1,5 @@
 -- ============================================================================
--- 002_seed.sql — initial 4 displays for the dashboard.
+-- 002_seed.sql — initial 5 displays for the dashboard.
 -- These are seed records only. Administrators can add/edit/delete freely
 -- via the dashboard's AddDisplayModal/EditDisplayModal.
 -- Safe to re-run.
@@ -38,7 +38,7 @@ insert into public.displays (id, name, location, orientation, notes, approved_ur
    'https://nu-display.vercel.app',
    'https://nu-display.vercel.app'),
 
-  ('chapel',
+  ('chapel-display',
    'Chapel Display',
    'Butterfield Chapel',
    'Portrait 1080×1920',
