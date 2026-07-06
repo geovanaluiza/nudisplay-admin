@@ -36,7 +36,15 @@ insert into public.displays (id, name, location, orientation, notes, approved_ur
    'Hero lobby wall',
    'Full-screen hero display at the campus main entrance.',
    'https://nu-display.vercel.app',
-   'https://nu-display.vercel.app')
+   'https://nu-display.vercel.app'),
+
+  ('chapel',
+   'Chapel Display',
+   'Butterfield Chapel',
+   'Portrait 1080×1920',
+   'Chapel digital signage. Shows the Reach Church experience on Mondays and the regular chapel rotation on other days.',
+   'https://nu-chapel.vercel.app',
+   'https://nu-chapel.vercel.app')
 on conflict (id) do update set
   name         = excluded.name,
   location     = excluded.location,

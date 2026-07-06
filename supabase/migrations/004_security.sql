@@ -11,7 +11,7 @@
 -- the kiosk client writes when it detects a problem.
 -- ============================================================================
 
-alter table public.displays
+alter table public.displayshi
   add column if not exists approved_url     text        not null default '',
   add column if not exists is_secure        boolean     not null default true,
   add column if not exists security_status  text        not null default 'secure'

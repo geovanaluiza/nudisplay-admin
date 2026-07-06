@@ -3,6 +3,7 @@ import { NuMark } from './NuMark'
 
 const NAV = [
   { to: '/admin/displays', label: 'Displays' },
+  { to: '/admin/chapel', label: 'Chapel' },
 ]
 
 export default function Shell() {
