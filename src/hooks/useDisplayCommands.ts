@@ -21,7 +21,7 @@ export function useDisplayCommands(limit = 30) {
         .catch((err) => { if (!cancelled) console.warn('fetchRecentCommands failed', err) })
 
       const channel = sb
-        .channel('commands-inserts')
+        .channel('commands-changes')
         .on(
           'postgres_changes',
           { event: 'INSERT', schema: 'public', table: 'display_commands' },
@@ -29,6 +29,21 @@ export function useDisplayCommands(limit = 30) {
             if (cancelled) return
             const incoming = (payload as unknown as { new: DisplayCommand }).new
             setCommands((prev) => [incoming, ...prev].slice(0, limit))
+          },
+        )
+        .on(
+          'postgres_changes',
+          { event: 'UPDATE', schema: 'public', table: 'display_commands' },
+          (payload) => {
+            if (cancelled) return
+            const updated = (payload as unknown as { new: DisplayCommand }).new
+            setCommands((prev) => {
+              const idx = prev.findIndex((c) => c.id === updated.id)
+              if (idx === -1) return prev
+              const next = prev.slice()
+              next[idx] = updated
+              return next
+            })
           },
         )
         .subscribe()

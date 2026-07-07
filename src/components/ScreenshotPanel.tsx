@@ -75,7 +75,7 @@ export function ScreenshotPanel({ display }: { display: Display }) {
     <div className="flex flex-col gap-2">
       <PreviewHeader />
       {isOnline && url ? (
-        <LiveIframe key={url} url={url} name={display.name} />
+        <LiveIframe key={display.id} url={url} name={display.name} />
       ) : (
         <OfflinePortraitFrame />
       )}
@@ -101,7 +101,7 @@ export function ScreenshotPanel({ display }: { display: Display }) {
  *   3. '' → offline placeholder
  */
 export function resolveIframeUrl(display: Display): string {
-  const { approved_url, current_page, public_url } = display
+  const { approved_url, current_page, public_url, current_url } = display
 
   if (current_page && approved_url) {
     const joined = joinUrl(approved_url, current_page)
@@ -111,6 +111,8 @@ export function resolveIframeUrl(display: Display): string {
   if (approved_url) return approved_url
 
   if (public_url) return public_url
+
+  if (current_url) return current_url
 
   return ''
 }

@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { getSupabase } from '../services/supabase'
 import { fetchDisplays, writeHeartbeat } from '../services/displays'
 import { logEvent } from '../services/events'
-import type { Display, DisplayStatus } from '../types/display'
+import type { Display } from '../types/display'
 
 /**
  * Offline threshold: if last_seen is older than this, the display is
@@ -131,19 +131,19 @@ function applyRealtimeChange(prev: Display[], payload: unknown): Display[] {
 }
 
 /**
- * Re-derives `status` from `last_seen` without trusting the stored
- * value, so a display that hasn't pinged in 90s flips to offline
- * even if the dashboard's last write said otherwise.
+ * Re-derives `status` from `last_seen` when no recent heartbeat
+ * has been observed. Once a display sends at least one heartbeat
+ * (last_seen is recent), we trust the status it wrote — this
+ * prevents a stale initial fetch from overwriting a live heartbeat.
  */
 function recomputeStatus(d: Display): Display {
-  let status: DisplayStatus = d.status
   if (d.last_seen) {
     const age = Date.now() - new Date(d.last_seen).getTime()
-    status = age < OFFLINE_AFTER_MS ? 'online' : 'offline'
-  } else {
-    status = 'offline'
+    if (age < OFFLINE_AFTER_MS) {
+      return { ...d }
+    }
   }
-  return { ...d, status }
+  return { ...d, status: 'offline' }
 }
 
 async function probeAllLocal(prev: Display[]): Promise<Display[]> {
