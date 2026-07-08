@@ -56,7 +56,33 @@ const PREVIEW_MAX_WIDTH  = Math.round(PREVIEW_MAX_HEIGHT * 9 / 16) // 304px
                                 //   max-height kicks in.
 
 export function ScreenshotPanel({ display }: { display: Display }) {
-  // Priority:
+  // ---- Full status diagnostic ----
+  const OFFLINE_AFTER_MS = 90_000
+  const now = Date.now()
+  const lastSeenMs = display.last_seen ? new Date(display.last_seen).getTime() : null
+  const ageMs = lastSeenMs !== null ? now - lastSeenMs : null
+  const finalComputedStatus = ageMs !== null && ageMs < OFFLINE_AFTER_MS ? 'online' : 'offline'
+  const url = resolveIframeUrl(display)
+  // eslint-disable-next-line no-console
+  console.table({
+    id: display.id,
+    dbStatus: display.status,
+    rawLastSeen: display.last_seen,
+    parsedLastSeen: display.last_seen ? new Date(display.last_seen).toISOString() : null,
+    now: new Date(now).toISOString(),
+    ageMs,
+    thresholdMs: OFFLINE_AFTER_MS,
+    finalComputedStatus,
+    has_public_url: Boolean(display.public_url),
+    has_approved_url: Boolean(display.approved_url),
+    has_current_page: Boolean(display.current_page),
+    public_url: display.public_url ?? '—',
+    approved_url: display.approved_url ?? '—',
+    current_page: display.current_page ?? '—',
+    current_url: display.current_url ?? '—',
+    resolvedUrl: url,
+    showIframe: Boolean(url),
+  })
   //   1. display.current_url (live) — what the physical kiosk is
   //      actually showing right now. Supabase Realtime pushes a
   //      new value every time the display navigates, so the
@@ -70,12 +96,8 @@ export function ScreenshotPanel({ display }: { display: Display }) {
   // embed in the production admin. Reconstruct the URL from
   // approved_url + current_page instead.
   //
-  // The iframe is shown for ANY display that has a valid URL,
-  // regardless of online/offline/secure/warning/focus status.
-  // Only a missing URL triggers the offline placeholder.
   // Security badges and status indicators render elsewhere
   // (DisplayCard header) so they never hide the preview.
-  const url = resolveIframeUrl(display)
   return (
     <div className="flex flex-col gap-2">
       <PreviewHeader />
@@ -106,18 +128,19 @@ export function ScreenshotPanel({ display }: { display: Display }) {
  *   3. '' → offline placeholder
  */
 export function resolveIframeUrl(display: Display): string {
-  const { approved_url, current_page, public_url, current_url } = display
+  const { approved_url, current_page, public_url } = display
 
-  if (current_page && approved_url) {
-    const joined = joinUrl(approved_url, current_page)
-    if (joined) return joined
+  // If approved_url is set, use it (optionally with current_page)
+  if (approved_url && approved_url.length > 0) {
+    if (current_page) {
+      const joined = joinUrl(approved_url, current_page)
+      if (joined) return joined
+    }
+    return approved_url
   }
 
-  if (approved_url) return approved_url
-
-  if (public_url) return public_url
-
-  if (current_url) return current_url
+  // Fallback to public_url if available
+  if (public_url && public_url.length > 0) return public_url
 
   return ''
 }
@@ -152,15 +175,24 @@ function LiveIframe({ url, name }: { url: string; name: string }) {
   useEffect(() => {
     setLoaded(false)
     setBlocked(false)
-  }, [url])
+    // eslint-disable-next-line no-console
+    console.log(`[LiveIframe] mounting for "${name}" with url: ${url}`)
+  }, [url, name])
 
   useEffect(() => {
     if (loaded || blocked) return
     const id = window.setTimeout(() => {
+      // eslint-disable-next-line no-console
+      console.log(`[LiveIframe] timeout reached for "${name}" — showing BlockedOverlay`)
       setBlocked(true)
-    }, 12_000)
+    }, 3_000)
     return () => window.clearTimeout(id)
-  }, [loaded, blocked])
+  }, [loaded, blocked, name])
+
+  // eslint-disable-next-line no-console
+  const onIframeLoad = () => { console.log(`[LiveIframe] onLoad fired for "${name}"`) ; setLoaded(true) }
+  // eslint-disable-next-line no-console
+  const onIframeError = () => { console.log(`[LiveIframe] onError fired for "${name}"`) ; setBlocked(true) }
 
   return (
     <div
@@ -177,8 +209,8 @@ function LiveIframe({ url, name }: { url: string; name: string }) {
           title={`${name} live preview`}
           referrerPolicy="no-referrer"
           sandbox="allow-scripts allow-same-origin allow-forms allow-popups"
-          onLoad={() => setLoaded(true)}
-          onError={() => setBlocked(true)}
+          onLoad={onIframeLoad}
+          onError={onIframeError}
           className="absolute inset-0 w-full h-full border-0 bg-nu-midnight"
         />
       )}

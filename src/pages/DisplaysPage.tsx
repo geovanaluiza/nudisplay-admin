@@ -15,6 +15,34 @@ export default function DisplaysPage() {
   const events = useDisplayEvents(60)
   const [refreshTick, setRefreshTick] = useState(0)
 
+  // DEBUG: log all displays from hook
+  // eslint-disable-next-line no-console
+  console.group('[DisplaysPage] displays from useDisplayStatus')
+  // eslint-disable-next-line no-console
+  displays.forEach((d) => {
+    const OFFLINE_AFTER_MS = 90_000
+    const now = Date.now()
+    const lastSeenMs = d.last_seen ? new Date(d.last_seen).getTime() : null
+    const ageMs = lastSeenMs !== null ? now - lastSeenMs : null
+    // eslint-disable-next-line no-console
+    console.table({
+      id: d.id,
+      name: d.name,
+      dbStatus: d.status,
+      last_seen: d.last_seen,
+      lastSeenAge: ageMs !== null ? `${Math.round(ageMs / 1000)}s ago` : 'null',
+      ageMs,
+      thresholdMs: OFFLINE_AFTER_MS,
+      recomputedStatus: ageMs !== null && ageMs < OFFLINE_AFTER_MS ? 'online' : 'offline',
+      public_url: d.public_url ?? '—',
+      approved_url: d.approved_url ?? '—',
+      current_url: d.current_url ?? '—',
+      current_page: d.current_page ?? '—',
+    })
+  })
+  // eslint-disable-next-line no-console
+  console.groupEnd()
+
   const stats = useMemo(() => {
     const online = displays.filter((d) => d.status === 'online').length
     const offline = displays.filter((d) => d.status === 'offline').length
