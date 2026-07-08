@@ -56,7 +56,6 @@ const PREVIEW_MAX_WIDTH  = Math.round(PREVIEW_MAX_HEIGHT * 9 / 16) // 304px
                                 //   max-height kicks in.
 
 export function ScreenshotPanel({ display }: { display: Display }) {
-  const isOnline = display.status === 'online'
   // Priority:
   //   1. display.current_url (live) — what the physical kiosk is
   //      actually showing right now. Supabase Realtime pushes a
@@ -70,11 +69,17 @@ export function ScreenshotPanel({ display }: { display: Display }) {
   // report http://localhost:3000/... — that origin would never
   // embed in the production admin. Reconstruct the URL from
   // approved_url + current_page instead.
+  //
+  // The iframe is shown for ANY display that has a valid URL,
+  // regardless of online/offline/secure/warning/focus status.
+  // Only a missing URL triggers the offline placeholder.
+  // Security badges and status indicators render elsewhere
+  // (DisplayCard header) so they never hide the preview.
   const url = resolveIframeUrl(display)
   return (
     <div className="flex flex-col gap-2">
       <PreviewHeader />
-      {isOnline && url ? (
+      {url ? (
         <LiveIframe key={display.id} url={url} name={display.name} />
       ) : (
         <OfflinePortraitFrame />
