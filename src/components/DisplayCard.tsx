@@ -5,17 +5,15 @@ import { SecurityBadge } from './SecurityBadge'
 import { SecurityAlert } from './SecurityAlert'
 import { Button } from './Button'
 import { ScreenshotPanel } from './ScreenshotPanel'
-import { DevControls } from './DevControls'
 import { CommandStatus } from './CommandStatus'
-import { PowerManagement } from './PowerManagement'
 import {
   IconExternal, IconRefresh, IconHome, IconBlock, IconAlert,
-  IconMapPin, IconDisplay, IconClock, IconBolt, IconCheck, IconX,
+  IconMapPin, IconDisplay, IconClock, IconBolt, IconCheck,
 } from './icons'
 import { sendCommand } from '../services/commands'
 import { logEvent } from '../services/events'
 import { isSupabaseConfigured } from '../services/supabase'
-import { useState, useMemo, useEffect } from 'react'
+import { useState, useMemo, useEffect, type ReactNode } from 'react'
 
 type Props = {
   display: Display
@@ -128,6 +126,18 @@ export function DisplayCard({ display, commands }: Props) {
     setBusyCmd(cmd)
     setCmdState((s) => ({ ...s, [cmd]: 'sending' }))
     setCmdError(null)
+
+    const dangerous = cmd === 'blackout' || cmd === 'emergency_message' || cmd === 'power_off'
+    if (dangerous) {
+      const ok = window.confirm(
+        cmd === 'emergency_message'
+          ? `Show the EMERGENCY overlay on “${display.name}”?`
+          : cmd === 'blackout'
+            ? `Black out “${display.name}”? The TV will go dark until you clear it.`
+            : `Power off “${display.name}”?`,
+      )
+      if (!ok) return
+    }
 
     try {
       const inserted = await sendCommand(display.id, cmd)
@@ -314,46 +324,12 @@ export function DisplayCard({ display, commands }: Props) {
         </div>
       )}
 
-      {/* 5) Command pipeline (Phase 3F) — pending/executed summary */}
       <CommandStatus display={display} commands={commands} />
 
-      {/* 6) Commands row — primary actions */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-        {(() => {
-          const r = btnProps('reload', 'Reload')
-          return (
-            <Button
-              variant="secondary"
-              size="sm"
-              icon={<IconRefresh />}
-              onClick={() => onCommand('reload', 'Reload')}
-              disabled={r.disabled}
-              title={r.title}
-              className={r.state === 'queued' || r.state === 'executed' ? 'ring-1 ring-nu-tour/50' : ''}
-            >
-              {r.stateLabel}
-            </Button>
-          )
-        })()}
-        {(() => {
-          const g = btnProps('go_home', 'Go Home')
-          return (
-            <Button
-              variant="secondary"
-              size="sm"
-              icon={<IconHome />}
-              onClick={() => onCommand('go_home', 'Go Home')}
-              disabled={g.disabled}
-              title="Universal recovery: clear blackout/emergency and return to home"
-              className={[
-                'ring-1 ring-nu-tour/40',
-                g.state === 'queued' || g.state === 'executed' ? 'ring-nu-tour/60' : '',
-              ].join(' ')}
-            >
-              {g.stateLabel}
-            </Button>
-          )
-        })()}
+      <div className="text-[10px] font-bold tracking-[0.22em] uppercase text-nu-tour">
+        Protect this screen
+      </div>
+      <div className="grid grid-cols-2 gap-2">
         {(() => {
           const b = btnProps('blackout', blackoutActive ? 'End Blackout' : 'Blackout')
           return (
@@ -392,39 +368,37 @@ export function DisplayCard({ display, commands }: Props) {
         })()}
       </div>
 
-      {/* 6b) Explicit recovery row — Clear Blackout / Clear Emergency
-            Use these to remove a single overlay WITHOUT navigating.
-            Go Home above does both AND navigates. */}
+      <div className="text-[10px] font-bold tracking-[0.22em] uppercase text-nu-skylight/70">
+        Recover
+      </div>
       <div className="grid grid-cols-2 gap-2">
         {(() => {
-          const c = btnProps('clear_blackout', 'Clear Blackout')
+          const r = btnProps('reload', 'Reload')
           return (
             <Button
-              variant="ghost"
+              variant="secondary"
               size="sm"
-              icon={<IconX size={12} />}
-              onClick={() => onCommand('clear_blackout', 'Clear Blackout')}
-              disabled={c.disabled}
-              title="Remove blackout overlay only — does not navigate"
-              className="text-[11px]"
+              icon={<IconRefresh />}
+              onClick={() => onCommand('reload', 'Reload')}
+              disabled={r.disabled}
+              title={r.title}
             >
-              {c.state === 'queued' ? 'Queued' : c.state === 'executed' ? 'Done' : 'Clear Blackout'}
+              {r.stateLabel}
             </Button>
           )
         })()}
         {(() => {
-          const c = btnProps('clear_emergency', 'Clear Emergency')
+          const g = btnProps('go_home', 'Go Home')
           return (
             <Button
-              variant="ghost"
+              variant="secondary"
               size="sm"
-              icon={<IconX size={12} />}
-              onClick={() => onCommand('clear_emergency', 'Clear Emergency')}
-              disabled={c.disabled}
-              title="Remove emergency overlay only — does not navigate"
-              className="text-[11px]"
+              icon={<IconHome />}
+              onClick={() => onCommand('go_home', 'Go Home')}
+              disabled={g.disabled}
+              title="Clear overlays and return this screen to home"
             >
-              {c.state === 'queued' ? 'Queued' : c.state === 'executed' ? 'Done' : 'Clear Emergency'}
+              {g.stateLabel}
             </Button>
           )
         })()}
@@ -437,30 +411,6 @@ export function DisplayCard({ display, commands }: Props) {
         </div>
       )}
 
-      {/* 6c) Power Management (Phase 5C) — hardware-agnostic on/off.
-            Sits below the command pipeline and reuses the same
-            display_commands table. The display client's
-            commandExecutor.executePowerOff / executePowerOn stubs
-            dispatch to whatever backend is plugged in. */}
-      <PowerManagement
-        display={display}
-        lastPowerCommand={
-          latestForCmd.power_off ? {
-            command: 'power_off',
-            created_at: latestForCmd.power_off.created_at,
-            executed_at: latestForCmd.power_off.executed_at,
-          } : latestForCmd.power_on ? {
-            command: 'power_on',
-            created_at: latestForCmd.power_on.created_at,
-            executed_at: latestForCmd.power_on.executed_at,
-          } : null
-        }
-      />
-
-      {/* 7) Dev controls (Phase 3E) — visible on the admin dashboard
-         since this is an internal-only preview. In a real production
-         build remove forceEnable to gate by import.meta.env.PROD. */}
-      <DevControls display={display} forceEnable />
     </article>
   )
 }
@@ -470,7 +420,7 @@ export function DisplayCard({ display, commands }: Props) {
 function Meta({
   icon, label, value, accent,
 }: {
-  icon: React.ReactNode
+  icon: ReactNode
   label: string
   value: string
   accent?: 'leaf' | 'amber' | 'sky'

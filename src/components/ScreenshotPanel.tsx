@@ -1,317 +1,117 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import type { Display } from '../types/display'
-import { IconImage, IconExternal, IconBlock } from './icons'
+import { IconImage, IconExternal } from './icons'
 
 /**
- * LivePreviewPanel — Phase 5B.
- *
- * Replaces the previous screenshot-render preview with a live
- * iframe embedding the display's actual public URL. The preview
- * area is locked to the kiosk's portrait aspect ratio (9:16,
- * 1080×1920) so the dashboard feels like a real digital
- * signage operations center.
- *
- * Key behaviors:
- *   - Lazy mount: an IntersectionObserver defers the <iframe>
- *     src until the card scrolls into the viewport, so four
- *     cards on the dashboard do NOT all load their heavy
- *     Vercel sites at the same time.
- *   - Portrait container: aspect-ratio 9/16, max-height
- *     caps the preview so 4 cards on one row don't push
- *     the page into a vertical scroll tower.
- *   - LIVE indicator: a small pulsing dot appears top-right
- *     once the iframe successfully fires its onLoad event.
- *   - Blocked/CSP fallback: if the iframe fails to load
- *     (X-Frame-Options: deny, missing Content-Security-Policy
- *     frame-ancestors), we render a clear "preview blocked"
- *     panel with an "Open Live Preview" button. The card
- *     never crashes.
- *   - Offline display: we DO NOT mount the iframe. Instead
- *     a portrait "DISPLAY OFFLINE" placeholder is rendered
- *     inside the same 9:16 frame so the visual rhythm of
- *     the page is preserved.
- *
- * The component intentionally drops:
- *   - screenshot_url reads
- *   - screenshot_updated_at stale badge
- *   - screenshot Retry / Open-image controls
- *   - display_events.screenshot_failed emission
- *
- * The display clients still upload screenshots (Phase 5A) and
- * the Storage bucket still exists — they are just no longer
- * surfaced in the dashboard. Migration 005 is left in place
- * so historical screenshots remain queryable.
+ * Shows what is on the physical kiosk: the JPEG the display client
+ * uploads to Storage (display-screenshots/{id}/latest.jpg).
+ * An iframe of the public URL is a second copy of the website, not
+ * the TV, so it is only a fallback when no snapshot exists.
  */
-
-const PREVIEW_MAX_HEIGHT = 540 // px — keeps cards from getting
-                                //      comically tall on a 4-up grid
-const PREVIEW_MAX_WIDTH  = Math.round(PREVIEW_MAX_HEIGHT * 9 / 16) // 304px
-                                // — derived from the 9:16 aspect
-                                //   so the wrapper actually fits
-                                //   the portrait shape inside the
-                                //   wider grid cell. Without this
-                                //   the aspect-ratio collapses to
-                                //   "square-ish" because CSS does
-                                //   not auto-shrink width when
-                                //   max-height kicks in.
 
 export function ScreenshotPanel({ display }: { display: Display }) {
-  // ---- Full status diagnostic ----
-  const OFFLINE_AFTER_MS = 90_000
-  const now = Date.now()
-  const lastSeenMs = display.last_seen ? new Date(display.last_seen).getTime() : null
-  const ageMs = lastSeenMs !== null ? now - lastSeenMs : null
-  const finalComputedStatus = ageMs !== null && ageMs < OFFLINE_AFTER_MS ? 'online' : 'offline'
-  const url = resolveIframeUrl(display)
-  // eslint-disable-next-line no-console
-  console.table({
-    id: display.id,
-    dbStatus: display.status,
-    rawLastSeen: display.last_seen,
-    parsedLastSeen: display.last_seen ? new Date(display.last_seen).toISOString() : null,
-    now: new Date(now).toISOString(),
-    ageMs,
-    thresholdMs: OFFLINE_AFTER_MS,
-    finalComputedStatus,
-    has_public_url: Boolean(display.public_url),
-    has_approved_url: Boolean(display.approved_url),
-    has_current_page: Boolean(display.current_page),
-    public_url: display.public_url ?? '—',
-    approved_url: display.approved_url ?? '—',
-    current_page: display.current_page ?? '—',
-    current_url: display.current_url ?? '—',
-    resolvedUrl: url,
-    showIframe: Boolean(url),
-  })
-  //   1. display.current_url (live) — what the physical kiosk is
-  //      actually showing right now. Supabase Realtime pushes a
-  //      new value every time the display navigates, so the
-  //      iframe follows the physical screen in real time.
-  //   2. display.public_url (configured) — the canonical page.
-  //   3. display.approved_url (kiosk) — last-resort origin.
-  //   4. '' → renders the offline placeholder.
-  //
-  // Localhost guard: heartbeat payloads from a dev machine
-  // report http://localhost:3000/... — that origin would never
-  // embed in the production admin. Reconstruct the URL from
-  // approved_url + current_page instead.
-  //
-  // Security badges and status indicators render elsewhere
-  // (DisplayCard header) so they never hide the preview.
+  const [open, setOpen] = useState(false)
+  const shot = screenshotSrc(display)
+  const age = timeAgo(display.screenshot_updated_at)
+  const online = display.status !== 'offline'
+
   return (
     <div className="flex flex-col gap-2">
-      <PreviewHeader />
-      {url ? (
-        <LiveIframe key={display.id} url={url} name={display.name} />
-      ) : (
-        <OfflinePortraitFrame />
-      )}
-    </div>
-  )
-}
+      <div className="flex items-center justify-between text-[11px] text-nu-skylight/70 px-1">
+        <span className="nu-eyebrow text-[10px]">Physical screen</span>
+        {display.screenshot_updated_at && (
+          <span className="font-mono text-[10px] text-nu-skylight/50">Updated {age}</span>
+        )}
+      </div>
 
-/* -----------------------------------------------------------------
- * URL resolution
- * ----------------------------------------------------------------- */
-
-/**
- * Resolve the iframe src for a display.
- *
- * Admin preview rule: always derive the URL from the configured
- * approved_url so the dashboard preview matches the approved kiosk
- * origin. We intentionally ignore current_url (which may be a dev
- * machine localhost or transient navigation state) and public_url.
- *
- * Priority:
- *   1. approved_url + current_page (what the kiosk should be showing)
- *   2. approved_url alone
- *   3. '' → offline placeholder
- */
-export function resolveIframeUrl(display: Display): string {
-  const { approved_url, current_page, public_url } = display
-
-  // If approved_url is set, use it (optionally with current_page)
-  if (approved_url && approved_url.length > 0) {
-    if (current_page) {
-      const joined = joinUrl(approved_url, current_page)
-      if (joined) return joined
-    }
-    return approved_url
-  }
-
-  // Fallback to public_url if available
-  if (public_url && public_url.length > 0) return public_url
-
-  return ''
-}
-
-/** Append a path to an origin string, returning null on parse error. */
-function joinUrl(origin: string, path: string): string | null {
-  try {
-    const base = new URL(origin)
-    const p = path.startsWith('/') ? path : `/${path}`
-    return `${base.origin}${p}`
-  } catch {
-    return null
-  }
-}
-
-function PreviewHeader() {
-  return (
-    <div className="flex items-center justify-between text-[11px] text-nu-skylight/70 px-1">
-      <span className="nu-eyebrow text-[10px]">Live preview</span>
-    </div>
-  )
-}
-
-/* -----------------------------------------------------------------
- * Live iframe (always mounted for online displays)
- * ----------------------------------------------------------------- */
-
-function LiveIframe({ url, name }: { url: string; name: string }) {
-  const [loaded, setLoaded] = useState(false)
-  const [blocked, setBlocked] = useState(false)
-
-  useEffect(() => {
-    setLoaded(false)
-    setBlocked(false)
-    // eslint-disable-next-line no-console
-    console.log(`[LiveIframe] mounting for "${name}" with url: ${url}`)
-  }, [url, name])
-
-  useEffect(() => {
-    if (loaded || blocked) return
-    const id = window.setTimeout(() => {
-      // eslint-disable-next-line no-console
-      console.log(`[LiveIframe] timeout reached for "${name}" — showing BlockedOverlay`)
-      setBlocked(true)
-    }, 3_000)
-    return () => window.clearTimeout(id)
-  }, [loaded, blocked, name])
-
-  // eslint-disable-next-line no-console
-  const onIframeLoad = () => { console.log(`[LiveIframe] onLoad fired for "${name}"`) ; setLoaded(true) }
-  // eslint-disable-next-line no-console
-  const onIframeError = () => { console.log(`[LiveIframe] onError fired for "${name}"`) ; setBlocked(true) }
-
-  return (
-    <div
-      className="relative mx-auto w-full overflow-hidden rounded-glass border border-white/10 bg-nu-navy/40"
-      style={{
-        aspectRatio: '9 / 16',
-        maxWidth: `${PREVIEW_MAX_WIDTH}px`,
-        maxHeight: `${PREVIEW_MAX_HEIGHT}px`,
-      }}
-    >
-      {!blocked && (
-        <iframe
-          src={url}
-          title={`${name} live preview`}
-          referrerPolicy="no-referrer"
-          sandbox="allow-scripts allow-same-origin allow-forms allow-popups"
-          onLoad={onIframeLoad}
-          onError={onIframeError}
-          className="absolute inset-0 w-full h-full border-0 bg-nu-midnight"
-        />
-      )}
-
-      {/* Loading skeleton (visible until iframe fires onLoad) */}
-      {!loaded && !blocked && (
-        <div className="absolute inset-0 animate-pulse bg-gradient-to-br from-nu-navy/60 via-nu-midnight/80 to-nu-navy/60 flex items-center justify-center">
-          <div className="text-center">
-            <IconImage size={28} className="text-nu-skylight/30 mx-auto" />
-            <div className="nu-eyebrow mt-2 text-[10px] text-nu-skylight/50">
-              Connecting…
+      <div
+        className="relative mx-auto w-full overflow-hidden rounded-glass border border-white/10 bg-nu-navy/40"
+        style={{ aspectRatio: '9 / 16', maxWidth: '280px', maxHeight: '500px' }}
+      >
+        {shot ? (
+          <button
+            type="button"
+            className="absolute inset-0 block w-full h-full"
+            onClick={() => setOpen(true)}
+            title="Enlarge snapshot"
+          >
+            <img
+              src={shot}
+              alt={`${display.name} physical screen`}
+              className="absolute inset-0 w-full h-full object-cover object-top bg-nu-midnight"
+            />
+            <span className="absolute top-2 right-2 flex items-center gap-1.5 rounded-full bg-nu-midnight/85 border border-nu-leaf/40 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-nu-leaf">
+              <span className="inline-block w-1.5 h-1.5 rounded-full bg-nu-leaf animate-pulse" />
+              On glass
+            </span>
+          </button>
+        ) : (
+          <div className="absolute inset-0 flex items-center justify-center p-5 text-center">
+            <div>
+              <IconImage size={28} className="text-nu-skylight/30 mx-auto" />
+              <div className="nu-eyebrow mt-2 text-[10px] text-nu-skylight/60">
+                {online ? 'Waiting for snapshot' : 'Display offline'}
+              </div>
+              <p className="mt-1 text-[11px] text-nu-skylight/50 max-w-[200px] mx-auto">
+                {online
+                  ? 'The kiosk uploads a photo of the TV about every 20 seconds.'
+                  : 'Snapshot resumes when the kiosk reports online.'}
+              </p>
             </div>
           </div>
-        </div>
-      )}
+        )}
 
-      {/* LIVE indicator (top-right, only after iframe loaded) */}
-      {loaded && (
-        <div className="absolute top-2 right-2 flex items-center gap-1.5 rounded-full bg-nu-midnight/85 border border-nu-leaf/40 px-2 py-0.5 text-[10px] font-semibold tracking-wide uppercase text-nu-leaf shadow-md">
-          <span className="inline-block w-1.5 h-1.5 rounded-full bg-nu-leaf animate-pulse" />
-          Live
-        </div>
-      )}
+        {previewHref(display) && (
+          <a
+            href={previewHref(display)!}
+            target="_blank"
+            rel="noreferrer noopener"
+            className="absolute bottom-2 left-2 flex items-center gap-1 rounded-full bg-nu-midnight/80 border border-white/15 px-2 py-0.5 text-[10px] text-nu-skylight hover:text-nu-tour"
+          >
+            <IconExternal size={10} /> Open site
+          </a>
+        )}
+      </div>
 
-      {/* Open Live Preview button (top-left, always visible while online) */}
-      <a
-        href={url}
-        target="_blank"
-        rel="noreferrer noopener"
-        title="Open the live display page in a new tab"
-        className="absolute top-2 left-2 flex items-center gap-1 rounded-full bg-nu-midnight/80 border border-white/15 px-2 py-0.5 text-[10px] text-nu-skylight hover:text-nu-tour transition-colors"
-      >
-        <IconExternal size={10} /> Open
-      </a>
-
-      {/* Blocked / CSP fallback overlay */}
-      {blocked && (
-        <BlockedOverlay url={url} name={name} />
-      )}
-    </div>
-  )
-}
-
-function BlockedOverlay({ url, name }: { url: string; name: string }) {
-  return (
-    <div className="absolute inset-0 bg-nu-midnight/95 flex items-center justify-center p-6 text-center">
-      <div>
-        <IconBlock size={26} className="text-nu-amber/70 mx-auto" />
-        <div className="nu-eyebrow mt-2 text-[10px] text-nu-amber/90">
-          Preview blocked
-        </div>
-        <div className="mt-1 text-[11px] text-nu-skylight/70 max-w-[260px]">
-          {name} does not allow iframe embedding (X-Frame-Options
-          or CSP frame-ancestors). Open the page in a new tab to
-          see the live display.
-        </div>
-        <a
-          href={url}
-          target="_blank"
-          rel="noreferrer noopener"
-          className="mt-3 inline-flex items-center gap-1.5 rounded-full bg-nu-tour text-nu-midnight px-3 py-1 text-[11px] font-semibold hover:bg-nu-amber transition-colors"
+      {open && shot && (
+        <div
+          className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-6"
+          onClick={() => setOpen(false)}
+          role="dialog"
+          aria-label="Enlarged screen snapshot"
         >
-          <IconExternal size={11} /> Open Live Preview
-        </a>
-      </div>
+          <img
+            src={shot}
+            alt={`${display.name} enlarged`}
+            className="max-h-[90vh] max-w-[90vw] object-contain rounded-lg border border-white/20"
+          />
+        </div>
+      )}
     </div>
   )
 }
 
-/* -----------------------------------------------------------------
- * Offline placeholder (same 9:16 frame)
- * ----------------------------------------------------------------- */
+function screenshotSrc(display: Display): string | null {
+  const url = display.screenshot_url
+  if (!url) return null
+  const t = display.screenshot_updated_at
+    ? Date.parse(display.screenshot_updated_at)
+    : Date.now()
+  const sep = url.includes('?') ? '&' : '?'
+  return `${url}${sep}t=${t}`
+}
 
-function OfflinePortraitFrame() {
-  return (
-    <div
-      className="relative mx-auto w-full overflow-hidden rounded-glass border border-white/10 bg-nu-navy/30"
-      style={{
-        aspectRatio: '9 / 16',
-        maxWidth: `${PREVIEW_MAX_WIDTH}px`,
-        maxHeight: `${PREVIEW_MAX_HEIGHT}px`,
-      }}
-    >
-      <div
-        className="absolute inset-0 opacity-[0.06]"
-        style={{
-          backgroundImage:
-            'repeating-linear-gradient(45deg, rgba(255,255,255,0.6) 0 1px, transparent 1px 14px)',
-        }}
-      />
-      <div className="absolute inset-0 flex items-center justify-center">
-        <div className="text-center">
-          <IconBlock size={28} className="text-nu-amber/60 mx-auto" />
-          <div className="nu-eyebrow mt-2 text-[10px] text-nu-amber/80">
-            Display offline
-          </div>
-          <div className="mt-1 text-[11px] text-nu-skylight/50 max-w-[200px]">
-            Live preview resumes when the kiosk reports online.
-          </div>
-        </div>
-      </div>
-    </div>
-  )
+function previewHref(display: Display): string | null {
+  if (display.public_url) return display.public_url
+  if (display.approved_url) return display.approved_url
+  return null
+}
+
+function timeAgo(iso: string | null): string {
+  if (!iso) return '—'
+  const diff = Date.now() - new Date(iso).getTime()
+  if (diff < 15_000) return 'just now'
+  if (diff < 60_000) return `${Math.floor(diff / 1000)}s ago`
+  if (diff < 3_600_000) return `${Math.floor(diff / 60_000)}m ago`
+  return `${Math.floor(diff / 3_600_000)}h ago`
 }

@@ -44,7 +44,7 @@ export default function Shell() {
           <div className="ml-auto flex items-center gap-3">
             <span className="nu-pill">
               <span className="w-1.5 h-1.5 rounded-full bg-nu-leaf animate-pulse" />
-              Phase 2
+              Live
             </span>
             <span className="text-[12px] text-nu-skylight">v0.2</span>
           </div>
