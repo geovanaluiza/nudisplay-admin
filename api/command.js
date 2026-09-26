@@ -18,7 +18,8 @@ export default async function handler(req, res) {
   }
 
   const url = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY
+  const key =
+    process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SECRET_KEY
   if (!url || !key) {
     res.status(503).json({ error: 'Admin write not configured' })
     return
