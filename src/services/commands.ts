@@ -27,14 +27,27 @@ export async function sendCommand(
   command: CommandType,
   payload: Record<string, unknown> = {},
 ): Promise<DisplayCommand> {
-  const sb = getSupabase()
-  if (!sb) throw new Error('Supabase not configured')
-  const row = { display_id: displayId, command, payload }
-  const { data, error } = await sb
-    .from('display_commands')
-    .insert(row)
-    .select('*')
-    .single()
-  if (error) throw error
-  return data as DisplayCommand
+  const res = await fetch('/api/command', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    credentials: 'same-origin',
+    body: JSON.stringify({ display_id: displayId, command, payload }),
+  })
+  if (res.ok) return (await res.json()) as DisplayCommand
+
+  // Vite dev has no /api folder; fall back to the anon client locally.
+  if (res.status === 404) {
+    const sb = getSupabase()
+    if (!sb) throw new Error('Supabase not configured')
+    const { data, error } = await sb
+      .from('display_commands')
+      .insert({ display_id: displayId, command, payload })
+      .select('*')
+      .single()
+    if (error) throw error
+    return data as DisplayCommand
+  }
+
+  const err = await res.json().catch(() => ({ error: res.statusText }))
+  throw new Error(err.error || 'Command failed')
 }
